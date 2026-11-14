@@ -335,6 +335,13 @@ func (manager *runtimeManager) responseModes() api.ResponseModes {
 	return api.ResponseModes{NonstreamKeepalive: manager.current.config.NonstreamKeepalive, FakeStream: manager.current.config.FakeStream}
 }
 
+// errorMask 返回当前生成服务的对外错误遮蔽设置
+func (manager *runtimeManager) errorMask() (bool, string) {
+	manager.mu.RLock()
+	defer manager.mu.RUnlock()
+	return manager.current.config.ErrorMaskEnabled, manager.current.config.ErrorMaskServerMessage
+}
+
 // searchSettings 返回当前生成服务的搜索开关
 func (manager *runtimeManager) searchSettings() (modelAliases, googleSearch bool) {
 	manager.mu.RLock()

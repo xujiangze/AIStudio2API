@@ -266,6 +266,8 @@ type RuntimeConfig struct {
 	AutoStart                 bool                 `json:"auto_start"`
 	HideDockIcon              bool                 `json:"hide_dock_icon"`
 	RequestBodyLog            bool                 `json:"request_body_log"`
+	ErrorMaskEnabled          bool                 `json:"error_mask_enabled"`
+	ErrorMaskServerMessage    string               `json:"error_mask_server_message"`
 	AdminAuthEnabled          bool                 `json:"admin_auth_enabled"`
 	AdminUsername             string               `json:"admin_username"`
 	AdminPassword             *string              `json:"admin_password,omitempty"`

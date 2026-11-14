@@ -32,6 +32,8 @@ type Config struct {
 	MediaLinks func() (enabled bool, base string)
 	// ResponseModes 返回非流式保活与假流式设置
 	ResponseModes func() ResponseModes
+	// ErrorMask 返回对外错误遮蔽设置：enabled 为 true 时 5xx 返回统一文案 serverMessage、4xx 透传前替换暴露服务来源的关键词；serverMessage 为空时用默认文案
+	ErrorMask func() (enabled bool, serverMessage string)
 	// SearchSettings 返回当前生成服务的搜索型号与全模型搜索设置
 	SearchSettings func() (modelAliases, googleSearch bool)
 	// WaitLaunch 在生成服务启动期间等到启动结束，公开 API 请求经它等待后再处理
@@ -70,6 +72,7 @@ var idSequence atomic.Uint64
 
 // NewHandler 创建公开 API 路由
 func NewHandler(service aistudio.Service, config Config) http.Handler {
+	errorMask = config.ErrorMask
 	s := &server{
 		service: service, config: config, responseStates: newResponseStateStore(config.States), uploads: newGeminiUploads(), caches: newGeminiCaches(),
 		thoughtSignatures: newThoughtSignatureStore(), pairing: &pairingTokens{}, loginViews: &loginViews{}, accountTasks: &accountTasks{},

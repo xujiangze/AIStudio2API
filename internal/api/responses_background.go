@@ -48,7 +48,7 @@ func (s *server) storeBackgroundEnd(ctx context.Context, id string, created int6
 		s.storeResponse(id, request, prepared, generationResult{}, responseShell(id, created, "cancelled", request))
 	case err != nil:
 		failed := responseShell(id, created, "failed", request)
-		failed["error"] = map[string]any{"code": responsesErrorCode(err), "message": err.Error()}
+		failed["error"] = map[string]any{"code": responsesErrorCode(err), "message": maskResponseError(http.StatusInternalServerError, err.Error())}
 		s.storeResponse(id, request, prepared, generationResult{}, failed)
 	}
 }

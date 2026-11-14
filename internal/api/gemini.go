@@ -1883,7 +1883,7 @@ func (s *server) streamGemini(w http.ResponseWriter, r *http.Request, request ai
 			return
 		}
 		_ = stream.fail(map[string]any{"error": map[string]any{
-			"code": statusFromError(err), "message": err.Error(), "status": geminiErrorStatus(err),
+			"code": statusFromError(err), "message": maskResponseError(statusFromError(err), err.Error()), "status": geminiErrorStatus(err),
 		}})
 		return
 	}

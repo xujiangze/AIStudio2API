@@ -633,6 +633,8 @@ cp .env.example .env
 | `AUTO_START` | `false` | 管理程序启动后自动启动生成服务；网络等原因启动失败时按 5 秒起、翻倍至 5 分钟的间隔重试，手动启动或停止后不再重试 |
 | `HIDE_DOCK_ICON` | `false` | macOS 桌面版只在菜单栏显示图标、不显示 Dock 图标，关闭窗口后服务继续运行；在设置页修改立即生效 |
 | `REQUEST_BODY_LOG` | `false` | 保存公开 API 请求与响应正文，各截断到 64 KiB，保留最近 1000 条 |
+| `ERROR_MASK_ENABLED` | `true` | 遮蔽对外错误信息：5xx 错误统一返回 `ERROR_MASK_SERVER_MESSAGE` 的文案，4xx 错误透传但替换暴露服务来源的词；真实原因仍记录在请求日志与服务日志 |
+| `ERROR_MASK_SERVER_MESSAGE` | 空 | 5xx 错误对外返回的统一文案，留空时为 `Upstream service error`；在设置页修改立即生效 |
 | `LOG_FILE` | `true` | 同时把服务日志写入 `runtime/logs/`，单文件 10 MB 轮转 |
 | `LOG_MAX_TOTAL_MB` | `500` | 日志目录总量上限，超出时删除最旧的文件，不小于 20 |
 | `ADMIN_AUTH_ENABLED` | `false` | 管理控制台账号密码登录开关 |

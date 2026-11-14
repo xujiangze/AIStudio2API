@@ -1862,6 +1862,11 @@ export const messages: Record<TranslationKey, string> = {
   'settings.proxyDirect': 'Connexion directe',
   'settings.adminAuthHelp': 'L’accès à la console exige le nom d’utilisateur et le mot de passe.',
   'settings.requestBodyLog': 'Enregistrer les corps de requête',
+  'settings.errorMask': 'Masquer les erreurs sortantes',
+  'settings.errorMaskHelp': 'Activé, les erreurs 5xx renvoient un message fixe et les erreurs 4xx passent avec les noms de la source du service remplacés ; la raison réelle reste consignée dans les journaux de requêtes et de service',
+  'settings.errorMaskMessage': 'Message d’erreur 5xx unifié',
+  'settings.errorMaskMessageHelp': 'Message fixe renvoyé pour les erreurs 5xx ; laisser vide pour utiliser « Upstream service error »',
+  'settings.errorMaskMessagePlaceholder': 'Vide pour le message par défaut',
   'settings.requestBodyLogHelp':
     'Conserve les 1000 derniers corps de requête et de réponse, visibles dans les détails du journal',
   'settings.logFile': 'Écrire les fichiers journaux',
