@@ -1378,10 +1378,11 @@ func (admin *runtimeAdmin) UpdateRuntimeConfig(_ context.Context, value api.Runt
 		return api.RuntimeConfig{}, invalidConfigError(fmt.Errorf("REQUEST_TIMEOUT 无效: %w", err))
 	}
 	cfg := config.Config{
-		AutoStart:      value.AutoStart,
-		HideDockIcon:   value.HideDockIcon,
-		RequestBodyLog: value.RequestBodyLog,
-		LogFile:        value.LogFile, LogMaxTotalMB: value.LogMaxTotalMB,
+		AutoStart:        value.AutoStart,
+		HideDockIcon:     value.HideDockIcon,
+		RequestBodyLog:   value.RequestBodyLog,
+		ErrorMaskEnabled: value.ErrorMaskEnabled, ErrorMaskServerMessage: strings.TrimSpace(value.ErrorMaskServerMessage),
+		LogFile: value.LogFile, LogMaxTotalMB: value.LogMaxTotalMB,
 		AdminAuthEnabled: value.AdminAuthEnabled, AdminUsername: strings.TrimSpace(value.AdminUsername), AdminPassword: password,
 		BuildNativeNonstream: value.BuildNativeNonstream,
 		NonstreamKeepalive:   value.NonstreamKeepalive, FakeStream: value.FakeStream, YouTubeLinks: value.YouTubeLinks,
@@ -1730,10 +1731,11 @@ func buildVersion() string {
 
 func runtimeConfigDTO(cfg config.Config) api.RuntimeConfig {
 	return api.RuntimeConfig{
-		AutoStart:      cfg.AutoStart,
-		HideDockIcon:   cfg.HideDockIcon,
-		RequestBodyLog: cfg.RequestBodyLog,
-		LogFile:        cfg.LogFile, LogMaxTotalMB: cfg.LogMaxTotalMB,
+		AutoStart:        cfg.AutoStart,
+		HideDockIcon:     cfg.HideDockIcon,
+		RequestBodyLog:   cfg.RequestBodyLog,
+		ErrorMaskEnabled: cfg.ErrorMaskEnabled, ErrorMaskServerMessage: cfg.ErrorMaskServerMessage,
+		LogFile: cfg.LogFile, LogMaxTotalMB: cfg.LogMaxTotalMB,
 		AdminAuthEnabled: cfg.AdminAuthEnabled, AdminUsername: cfg.AdminUsername,
 		AdminPasswordSet: cfg.AdminPassword != "", SavedAdminPassword: cfg.AdminPassword,
 		BuildNativeNonstream: cfg.BuildNativeNonstream,

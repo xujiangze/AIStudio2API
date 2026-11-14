@@ -473,7 +473,7 @@ func (s *server) approvedMCPCall(ctx context.Context, tools []responsesTool, app
 	output, failed, err := s.callMCPTool(ctx, server, approval.Name, approval.Arguments)
 	switch {
 	case err != nil:
-		item["status"], item["error"] = "failed", map[string]any{"type": "mcp_protocol_error", "code": -32603, "message": publicReason(err)}
+		item["status"], item["error"] = "failed", map[string]any{"type": "mcp_protocol_error", "code": -32603, "message": maskResponseError(http.StatusBadRequest, publicReason(err))}
 	case failed:
 		item["status"], item["error"] = "failed", map[string]any{"type": "mcp_tool_execution_error", "content": []any{map[string]any{"type": "text", "text": output}}}
 	default:

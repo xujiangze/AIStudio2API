@@ -418,6 +418,8 @@ export interface ServiceConfig {
   auto_start: boolean
   hide_dock_icon: boolean
   request_body_log: boolean
+  error_mask_enabled: boolean
+  error_mask_server_message: string
   log_file: boolean
   log_max_total_mb: number
   admin_auth_enabled: boolean

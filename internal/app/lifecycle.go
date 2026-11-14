@@ -373,11 +373,13 @@ func (manager *runtimeManager) Close() error {
 
 // requestSettings 是只决定新请求行为的设置，保存后下一个请求即采用，进行中的请求沿用开始时的值
 type requestSettings struct {
-	modes              api.ResponseModes
-	searchModelAliases bool
-	googleSearch       bool
-	mediaOutput        string
-	mediaBaseURL       string
+	modes                  api.ResponseModes
+	searchModelAliases     bool
+	googleSearch           bool
+	mediaOutput            string
+	mediaBaseURL           string
+	errorMaskEnabled       bool
+	errorMaskServerMessage string
 }
 
 // requestSettingsOf 返回 cfg 中只决定新请求行为的设置
@@ -386,12 +388,19 @@ func requestSettingsOf(cfg config.Config) *requestSettings {
 		modes:              api.ResponseModes{NonstreamKeepalive: cfg.NonstreamKeepalive, FakeStream: cfg.FakeStream},
 		searchModelAliases: cfg.SearchModelAliases, googleSearch: cfg.GoogleSearch,
 		mediaOutput: cfg.MediaOutput, mediaBaseURL: cfg.MediaBaseURL,
+		errorMaskEnabled: cfg.ErrorMaskEnabled, errorMaskServerMessage: cfg.ErrorMaskServerMessage,
 	}
 }
 
 // responseModes 返回已保存的非流式保活与假流式设置
 func (manager *runtimeManager) responseModes() api.ResponseModes {
 	return manager.settings.Load().modes
+}
+
+// errorMask 返回已保存的对外错误遮蔽设置
+func (manager *runtimeManager) errorMask() (bool, string) {
+	settings := manager.settings.Load()
+	return settings.errorMaskEnabled, settings.errorMaskServerMessage
 }
 
 // searchSettings 返回已保存的搜索开关
@@ -746,6 +755,7 @@ func (manager *runtimeManager) UpdateRuntimeConfig(ctx context.Context, value ap
 		modes:              api.ResponseModes{NonstreamKeepalive: updated.NonstreamKeepalive, FakeStream: updated.FakeStream},
 		searchModelAliases: updated.SearchModelAliases, googleSearch: updated.GoogleSearch,
 		mediaOutput: updated.MediaOutput, mediaBaseURL: updated.MediaBaseURL,
+		errorMaskEnabled: updated.ErrorMaskEnabled, errorMaskServerMessage: updated.ErrorMaskServerMessage,
 	})
 	updated = manager.decorateRuntimeConfig(updated, current.config)
 	manager.ledger.SetBodyCapture(updated.RequestBodyLog)

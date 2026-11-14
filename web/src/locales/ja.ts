@@ -2029,6 +2029,11 @@ export const messages: Record<TranslationKey, string> = {
   'settings.proxyDirect': '直接接続',
   'settings.adminAuthHelp': 'コンソールにアクセスするにはユーザー名とパスワードが必要になります。',
   'settings.requestBodyLog': 'リクエスト本文を保存',
+  'settings.errorMask': '外部エラーのマスク',
+  'settings.errorMaskHelp': 'オンにすると 5xx エラーは固定のメッセージを返し、4xx エラーはサービスの由来を示す語を置き換えて透過します。実際の原因はリクエストログとサービスログに記録されます',
+  'settings.errorMaskMessage': '5xx 統一エラーメッセージ',
+  'settings.errorMaskMessageHelp': '5xx エラーで返す固定メッセージ。空欄でデフォルトの "Upstream service error" を使用',
+  'settings.errorMaskMessagePlaceholder': '空欄でデフォルトを使用',
   'settings.requestBodyLogHelp':
     '最新 1000 件のリクエストとレスポンス本文を保存し、ログの詳細で表示',
   'settings.logFile': 'ログファイルに書き込む',

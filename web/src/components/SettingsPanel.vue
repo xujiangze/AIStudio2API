@@ -127,6 +127,8 @@ const sections: {
       'admin_auth_enabled',
       'admin_username',
       'request_body_log',
+      'error_mask_enabled',
+      'error_mask_server_message',
       'log_file',
       'log_max_total_mb',
     ],
@@ -1172,6 +1174,33 @@ async function saveConfig(): Promise<void> {
               :env="environmentKey('request_body_log')"
             >
               <UiSwitch id="setting-body-log" v-model="form.request_body_log" />
+            </SettingRow>
+            <SettingRow
+              :label="t('settings.errorMask')"
+              control-id="setting-error-mask"
+              :description="t('settings.errorMaskHelp')"
+              effect="immediate"
+              :changed="changedFields.has('error_mask_enabled')"
+              :env="environmentKey('error_mask_enabled')"
+            >
+              <UiSwitch id="setting-error-mask" v-model="form.error_mask_enabled" />
+            </SettingRow>
+            <SettingRow
+              :label="t('settings.errorMaskMessage')"
+              control-id="setting-error-mask-message"
+              :description="t('settings.errorMaskMessageHelp')"
+              effect="immediate"
+              :changed="changedFields.has('error_mask_server_message')"
+              :env="environmentKey('error_mask_server_message')"
+            >
+              <input
+                id="setting-error-mask-message"
+                v-model="form.error_mask_server_message"
+                name="error_mask_server_message"
+                type="text"
+                :placeholder="t('settings.errorMaskMessagePlaceholder')"
+                :class="inputClass"
+              />
             </SettingRow>
             <SettingRow
               :label="t('settings.logFile')"

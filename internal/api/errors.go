@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"math"
 	"net/http"
 	"regexp"
@@ -14,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/Mag1cFall/AIStudio2API/internal/aistudio"
 	"github.com/Mag1cFall/AIStudio2API/internal/i18n"
@@ -379,9 +381,71 @@ func notReadyReason(err *aistudio.AccountsNotReadyError) string {
 	return "No account can serve this request (accounts " + strings.Join(parts, ", ") + ")"
 }
 
+// defaultErrorMaskMessage 是 5xx 对外统一错误文案
+const defaultErrorMaskMessage = "Upstream service error"
+
+// errorMask 返回对外错误遮蔽设置，由 NewHandler 按当前配置注入；nil 时视为关闭
+var errorMask func() (enabled bool, serverMessage string)
+
+// upstreamNameWords 匹配文案中暴露服务名称与来源的词汇，大小写不敏感
+var upstreamNameWords = regexp.MustCompile(`(?i)aistudio2api|aistudio\.google\.com|aistudio|ai[ \-_]?studio|makersuite`)
+
+// redactUpstreamName 把文案里暴露服务名称与来源的词汇换成中性的 upstream/service 写法，替换词保持句首大写
+func redactUpstreamName(message string) string {
+	locations := upstreamNameWords.FindAllStringIndex(message, -1)
+	if locations == nil {
+		return message
+	}
+	var builder strings.Builder
+	builder.Grow(len(message))
+	last := 0
+	for _, location := range locations {
+		start, end := location[0], location[1]
+		replacement := "upstream"
+		switch {
+		case strings.EqualFold(message[start:end], "aistudio.google.com"):
+			replacement = "upstream service"
+		case strings.EqualFold(message[start:end], "aistudio2api"):
+			replacement = "service"
+		}
+		if unicode.IsUpper(rune(message[start])) {
+			replacement = strings.ToUpper(replacement[:1]) + replacement[1:]
+		}
+		builder.WriteString(message[last:start])
+		builder.WriteString(replacement)
+		last = end
+	}
+	builder.WriteString(message[last:])
+	return builder.String()
+}
+
+// maskResponseError 遮蔽对外错误文案：5xx 换成统一文案并把原始原因记入服务日志，4xx 透传但替换暴露服务来源的关键词；
+// 须在 publicText 与 publicReason 之后调用，先替换会让中文原因匹配不到英文翻译表
+func maskResponseError(status int, message string) string {
+	if errorMask == nil {
+		return message
+	}
+	enabled, serverMessage := errorMask()
+	if !enabled {
+		return message
+	}
+	if status < 500 {
+		return redactUpstreamName(message)
+	}
+	if trimmed := strings.TrimSpace(serverMessage); trimmed != "" {
+		serverMessage = trimmed
+	} else {
+		serverMessage = defaultErrorMaskMessage
+	}
+	if message != serverMessage {
+		slog.Warn("对外 5xx 错误已遮蔽", "status", status, "reason", message)
+	}
+	return serverMessage
+}
+
 func writeOpenAIError(w http.ResponseWriter, status int, code string, message string) {
 	setAccessLogResponseError(w, message)
-	message = publicErrorMessage(status, publicText(message))
+	message = maskResponseError(status, publicErrorMessage(status, publicText(message)))
 	writeJSON(w, status, map[string]any{"error": openAIErrorBody{Message: message, Type: openAIErrorType(status, code), Code: code}})
 }
 
@@ -405,7 +469,7 @@ func openAIErrorType(status int, code string) string {
 
 func writeAnthropicError(w http.ResponseWriter, status int, errorType string, message string) {
 	setAccessLogResponseError(w, message)
-	message = publicErrorMessage(status, publicText(message))
+	message = maskResponseError(status, publicErrorMessage(status, publicText(message)))
 	writeJSON(w, status, anthropicErrorResponse{Type: "error", Error: anthropicErrorBody{Type: errorType, Message: message}})
 }
 
@@ -425,7 +489,7 @@ func writeGeminiError(w http.ResponseWriter, status int, statusName string, mess
 	setAccessLogResponseError(w, message)
 	writeJSON(w, status, officialOrder("gemini", map[string]any{"error": map[string]any{
 		"code":    status,
-		"message": publicText(message),
+		"message": maskResponseError(status, publicText(message)),
 		"status":  statusName,
 	}}))
 }
@@ -447,7 +511,7 @@ func writeOpenAISSEError(w http.ResponseWriter, err error) {
 	status := statusFromError(err)
 	code := openAIErrorCode(err)
 	_ = writeSSE(w, "", map[string]any{"error": openAIErrorBody{
-		Message: retryMessage(publicErrorMessage(status, publicReason(err)), retryAfterSeconds(err)), Type: openAIErrorType(status, code), Code: code,
+		Message: maskResponseError(status, retryMessage(publicErrorMessage(status, publicReason(err)), retryAfterSeconds(err))), Type: openAIErrorType(status, code), Code: code,
 	}})
 }
 
@@ -492,7 +556,8 @@ func writeGeminiRequestError(w http.ResponseWriter, err error) {
 
 // geminiErrorPayload 返回 Gemini 错误对象，seconds 大于 0 时 details 带该时长的 RetryInfo
 func geminiErrorPayload(err error, seconds int64) map[string]any {
-	payload := map[string]any{"code": statusFromError(err), "message": publicReason(err), "status": geminiErrorStatus(err)}
+	status := statusFromError(err)
+	payload := map[string]any{"code": status, "message": maskResponseError(status, publicReason(err)), "status": geminiErrorStatus(err)}
 	if seconds > 0 {
 		payload["details"] = []any{map[string]any{"@type": "type.googleapis.com/google.rpc.RetryInfo", "retryDelay": strconv.FormatInt(seconds, 10) + "s"}}
 	}

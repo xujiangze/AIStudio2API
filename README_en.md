@@ -665,6 +665,8 @@ Process environment variables override the same keys in `.env`, and those settin
 | `AUTO_START` | `false` | Start the generation service when the manager starts |
 | `HIDE_DOCK_ICON` | `false` | On the macOS desktop app, show the icon only in the menu bar instead of the Dock; the service keeps running after the window closes. Changes in Settings take effect immediately |
 | `REQUEST_BODY_LOG` | `false` | Store public API request and response bodies, each truncated to 64 KiB, keeping the latest 1000 |
+| `ERROR_MASK_ENABLED` | `true` | Mask outgoing error messages: 5xx errors return the `ERROR_MASK_SERVER_MESSAGE` text and 4xx errors pass through with service-source names replaced; the real reason is still recorded in request and service logs |
+| `ERROR_MASK_SERVER_MESSAGE` | empty | Unified message returned for 5xx errors, defaults to `Upstream service error`; changes in Settings take effect immediately |
 | `LOG_FILE` | `true` | Also write service logs to `runtime/logs/`, rotating at 10 MB per file |
 | `LOG_MAX_TOTAL_MB` | `500` | Total size limit of the log directory; the oldest files are removed beyond it; at least 20 |
 | `ADMIN_AUTH_ENABLED` | `false` | Enable username/password login for the console |

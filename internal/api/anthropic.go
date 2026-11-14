@@ -1683,6 +1683,6 @@ func (writer *anthropicStreamWriter) finish(result generationResult) error {
 func (writer *anthropicStreamWriter) error(err error) error {
 	return writer.send("error", map[string]any{
 		"type":  "error",
-		"error": map[string]string{"type": anthropicErrorType(err), "message": retryMessage(publicErrorMessage(statusFromError(err), anthropicErrorMessage(err)), retryAfterSeconds(err))},
+		"error": map[string]string{"type": anthropicErrorType(err), "message": maskResponseError(statusFromError(err), retryMessage(publicErrorMessage(statusFromError(err), anthropicErrorMessage(err)), retryAfterSeconds(err)))},
 	})
 }

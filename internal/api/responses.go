@@ -2323,7 +2323,8 @@ func (writer *responsesStreamWriter) failed(err error) error {
 
 // responsesError 返回 Responses 失败对象的 error 字段：code 取 Responses 错误枚举，可重试时消息末尾写明重试时间
 func responsesError(err error) map[string]any {
-	return map[string]any{"code": responsesErrorCode(err), "message": retryMessage(publicErrorMessage(statusFromError(err), publicReason(err)), retryAfterSeconds(err))}
+	status := statusFromError(err)
+	return map[string]any{"code": responsesErrorCode(err), "message": maskResponseError(status, retryMessage(publicErrorMessage(status, publicReason(err)), retryAfterSeconds(err)))}
 }
 
 // responsesErrorCode 返回 Responses 错误对象的官方枚举 code

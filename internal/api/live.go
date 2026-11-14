@@ -112,7 +112,7 @@ func (s *server) serveBidi(w http.ResponseWriter, r *http.Request, mode aistudio
 	request, inputModalities, err := bidiRequestFromSetup(mode, setup)
 	if err != nil {
 		SetAccessLogError(r.Context(), err)
-		_ = writeBidiJSON(connection, bidiServerMessage{Type: "error", Code: "invalid_request", Error: publicReason(err)})
+		_ = writeBidiJSON(connection, bidiServerMessage{Type: "error", Code: "invalid_request", Error: maskResponseError(http.StatusBadRequest, publicReason(err))})
 		_ = connection.Close()
 		return
 	}
@@ -407,7 +407,7 @@ func (s *server) writeBidiEvents(
 }
 
 func bidiErrorMessage(err error) bidiServerMessage {
-	message := bidiServerMessage{Type: "error", Error: publicReason(err)}
+	message := bidiServerMessage{Type: "error", Error: maskResponseError(statusFromError(err), publicReason(err))}
 	var coded errorCodeProvider
 	switch {
 	case errors.Is(err, aistudio.ErrInvalidArgument):
