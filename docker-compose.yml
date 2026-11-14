@@ -1,7 +1,6 @@
 services:
   aistudio2api:
-    image: ghcr.io/mag1cfall/aistudio2api:latest
-    build: .
+    image: ghcr.io/xujiangze/aistudio2api:latest
     container_name: aistudio2api
     restart: unless-stopped
     init: true
