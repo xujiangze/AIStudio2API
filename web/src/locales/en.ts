@@ -2042,9 +2042,11 @@ export const messages: Record<TranslationKey, string> = {
   'settings.adminAuthHelp': 'The console requires the admin username and password.',
   'settings.requestBodyLog': 'Save request bodies',
   'settings.errorMask': 'Mask outgoing errors',
-  'settings.errorMaskHelp': 'When on, 5xx errors return a fixed message and 4xx errors pass through with service-source names replaced; the real reason is still recorded in request and service logs',
+  'settings.errorMaskHelp':
+    'When on, 5xx errors return a fixed message and 4xx errors pass through with service-source names replaced; the real reason is still recorded in request and service logs',
   'settings.errorMaskMessage': '5xx unified error message',
-  'settings.errorMaskMessageHelp': 'Fixed message returned for 5xx errors; leave empty to use the default "Upstream service error"',
+  'settings.errorMaskMessageHelp':
+    'Fixed message returned for 5xx errors; leave empty to use the default "Upstream service error"',
   'settings.errorMaskMessagePlaceholder': 'Leave empty for the default message',
   'settings.requestBodyLogHelp':
     'Keeps the latest 1000 request and response bodies, shown in log details',

@@ -2012,9 +2012,11 @@ export const messages: Record<TranslationKey, string> = {
   'settings.adminAuthHelp': '콘솔에 접속하려면 사용자 이름과 비밀번호를 입력해야 합니다.',
   'settings.requestBodyLog': '요청 본문 저장',
   'settings.errorMask': '외부 오류 마스킹',
-  'settings.errorMaskHelp': '켜면 5xx 오류는 고정 메시지를 반환하고 4xx 오류는 서비스 출처를 드러내는 단어를 바꿔 전달합니다. 실제 원인은 요청 로그와 서비스 로그에 기록됩니다',
+  'settings.errorMaskHelp':
+    '켜면 5xx 오류는 고정 메시지를 반환하고 4xx 오류는 서비스 출처를 드러내는 단어를 바꿔 전달합니다. 실제 원인은 요청 로그와 서비스 로그에 기록됩니다',
   'settings.errorMaskMessage': '5xx 통일 오류 메시지',
-  'settings.errorMaskMessageHelp': '5xx 오류에서 반환할 고정 메시지입니다. 비워 두면 기본값 "Upstream service error"를 사용합니다',
+  'settings.errorMaskMessageHelp':
+    '5xx 오류에서 반환할 고정 메시지입니다. 비워 두면 기본값 "Upstream service error"를 사용합니다',
   'settings.errorMaskMessagePlaceholder': '비워 두면 기본값 사용',
   'settings.requestBodyLogHelp': '최근 1000개의 요청·응답 본문을 저장하며 로그 세부정보에서 확인',
   'settings.logFile': '로그 파일에 기록',
