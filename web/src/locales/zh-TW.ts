@@ -1713,9 +1713,11 @@ export const messages: Record<TranslationKey, string> = {
   'settings.adminAuthHelp': '存取主控台時需要輸入使用者名稱與密碼。',
   'settings.requestBodyLog': '儲存請求內文',
   'settings.errorMask': '對外錯誤遮蔽',
-  'settings.errorMaskHelp': '開啟後 5xx 錯誤統一回傳固定文案，4xx 錯誤透傳但替換暴露服務來源的詞；真實原因仍記錄在請求日誌與服務日誌',
+  'settings.errorMaskHelp':
+    '開啟後 5xx 錯誤統一回傳固定文案，4xx 錯誤透傳但替換暴露服務來源的詞；真實原因仍記錄在請求日誌與服務日誌',
   'settings.errorMaskMessage': '5xx 統一錯誤文案',
-  'settings.errorMaskMessageHelp': '5xx 錯誤對外回傳的固定文案，留空使用預設文案 “Upstream service error”',
+  'settings.errorMaskMessageHelp':
+    '5xx 錯誤對外回傳的固定文案，留空使用預設文案 “Upstream service error”',
   'settings.errorMaskMessagePlaceholder': '留空使用預設文案',
   'settings.requestBodyLogHelp': '保留最近 1000 筆請求與回應內文，在記錄詳細資料查看',
   'settings.logFile': '寫入記錄檔',

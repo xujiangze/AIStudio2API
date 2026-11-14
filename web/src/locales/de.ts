@@ -1857,9 +1857,11 @@ export const messages: Record<TranslationKey, string> = {
     'Für den Zugriff auf die Konsole sind Benutzername und Passwort erforderlich.',
   'settings.requestBodyLog': 'Anfrageinhalte speichern',
   'settings.errorMask': 'Ausgehende Fehler maskieren',
-  'settings.errorMaskHelp': 'Wenn aktiv, geben 5xx-Fehler einen festen Text zurück und 4xx-Fehler werden durchgereicht, wobei Namen der Dienstquelle ersetzt werden; der echte Grund bleibt in Anfrage- und Dienstprotokollen aufgezeichnet',
+  'settings.errorMaskHelp':
+    'Wenn aktiv, geben 5xx-Fehler einen festen Text zurück und 4xx-Fehler werden durchgereicht, wobei Namen der Dienstquelle ersetzt werden; der echte Grund bleibt in Anfrage- und Dienstprotokollen aufgezeichnet',
   'settings.errorMaskMessage': 'Einheitliche 5xx-Fehlermeldung',
-  'settings.errorMaskMessageHelp': 'Fester Text für 5xx-Fehler; leer lassen für den Standard „Upstream service error“',
+  'settings.errorMaskMessageHelp':
+    'Fester Text für 5xx-Fehler; leer lassen für den Standard „Upstream service error“',
   'settings.errorMaskMessagePlaceholder': 'Leer für Standardtext',
   'settings.requestBodyLogHelp':
     'Speichert die letzten 1000 Anfrage- und Antwortinhalte, sichtbar in den Protokolldetails',
