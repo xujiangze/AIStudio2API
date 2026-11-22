@@ -2047,21 +2047,41 @@ export const messages: Record<TranslationKey, string> = {
   'settings.unitSeconds': 'Sekunden',
   'settings.unitMinutes': 'Minuten',
   'settings.timeUnit': 'Zeiteinheit',
-  'settings.firstEventHedge': 'Ersatzanfrage bei langsamem ersten Token',
+  'settings.firstEventHedge': 'Wettlauf zum ersten Ereignis',
   'settings.firstEventHedgeHelp':
-    'Kommt das erste Token zu spät, wird die Anfrage über ein freies Konto erneut gesendet; die zuerst antwortende läuft weiter, die andere bricht ab',
+    'Die Zeit beginnt mit der Kontoübernahme des ersten Versuchs. Kommt bis zum Schwellwert kein Ereignis, startet eine Ersatzanfrage auf einem anderen bereiten Konto mit freiem Platz. Wer zuerst ein Ereignis erhält, läuft weiter. Gemeint ist das erste fehlerfreie Upstream-Ereignis einschließlich Denkzusammenfassungen, nicht zwingend sichtbarer Text. Ersatzanfragen verbrauchen ebenfalls Kontingent.',
+  'settings.firstEventPolicyHint':
+    'Wettlauf, gesamte Wartefrist auf das erste Ereignis und Überlastungs-Abkühlung sind unabhängig. Gespeicherte Änderungen gelten für neue Anfragen; laufende behalten ihre Richtlinie. Ändern oder Abschalten einer Abkühlung löscht keine bestehenden Einträge.',
   'settings.firstEventHedgeOff': 'Aus',
   'settings.firstEventHedgeAuto': 'Automatisch (aktuelles p95)',
   'settings.firstEventHedgeCustom': 'Benutzerdefiniert',
   'settings.firstEventHedgeSeconds': 'Wartezeit in Sekunden',
   'settings.firstEventHedgeUnit': 'Sekunden',
   'settings.firstEventHedgeAutoHint':
-    'Jedes Modell und jeder Kanal wartet sein p95 des ersten Tokens der letzten 24 h ab; unter 20 Anfragen keine Ersatzanfrage',
+    'Jedes Modell und jeder Kanal nutzt sein p95 des ersten Ereignisses der letzten 24 h; unter 20 Anfragen keine Ersatzanfrage',
   'settings.firstEventHedgeCustomHint':
-    'Zum Vergleich: p95 des ersten Tokens von {model} in den letzten 24 h: {seconds} s',
-  'settings.firstEventHedgeModels': 'Modelle mit Ersatzanfrage',
+    'Zum Vergleich: p95 des ersten Ereignisses von {model} in den letzten 24 h: {seconds} s',
+  'settings.firstEventHedgeModels': 'Modelle für den Wettlauf',
+  'settings.hedgeModelsAll': 'Alle geeigneten Modelle',
   'settings.firstEventHedgeModelsHelp':
-    'Eine Ersatzanfrage zählt auch bei Abbruch als eine Anfrage. Nur gemini-4-argon auf Ultra-Konten hat ein Token-Kontingent; andere Modelle haben Anfragekontingente und werden nicht empfohlen',
+    'Alle Modelle wird als * gespeichert. Eine leere Auswahlliste startet keinen Wettlauf. Nur normale Vordergrundgenerierung ist geeignet, einschließlich nicht gestreamter Anfragen mit schrittweisen Upstream-Ereignissen. Hintergrundaufgaben, Deep Research, Assistentenrouten, natives nicht gestreamtes Build und eigenständige Bild-/Video-APIs sind ausgenommen. Die Auswahl begrenzt nur den Wettlauf, nicht die unabhängige Frist für das erste Ereignis.',
+  'settings.firstEventHedgeMaxConcurrency': 'Globale Parallelgrenze für Ersatzanfragen',
+  'settings.firstEventHedgeMaxConcurrencyHelp':
+    'Maximal aktive Ersatzanfragen über alle Anfragen; positive ganze Zahl erforderlich, Kontogrenzen gelten weiterhin. Eine Senkung bricht laufende Ersatzanfragen nicht ab.',
+  'settings.firstEventTimeout': 'Gesamte Wartefrist auf das erste Ereignis',
+  'settings.firstEventTimeoutHelp':
+    'Beginnt mit der ersten Kontozuweisung. Vorbereitung, Kontowechsel, erneutes Warten und Ersatzanfragen setzen sie nicht zurück. Ohne fehlerfreies Ereignis bei Ablauf werden alle Versuche abgebrochen. Warten vor der ersten Zuweisung zählt nicht. Unabhängig von Wettlauf und Modellauswahl, mit demselben Geltungsbereich; 0 schaltet sie aus. Pausen nach dem ersten Ereignis sind nicht begrenzt.',
+  'settings.firstEventRaceCooldown': 'Wettlauf-Abkühlung',
+  'settings.firstEventRaceCooldownHelp':
+    'Kühlt das ursprüngliche Konto nur ab, wenn eine Ersatzanfrage auf einem anderen Konto zuerst ein Ereignis erhält und den noch wartenden ursprünglichen Versuch ersetzt. Gilt für Konto, Kanal und Modell. 0 schaltet sie aus; ohne Wettlauf keine neuen Einträge, bestehende bleiben erhalten.',
+  'settings.modelBusyCooldown': 'Überlastungs-Abkühlung',
+  'settings.modelBusyCooldownHelp':
+    'Ein modellbezogenes Überlastungs-HTTP-503 oder Protokollcode 14 kühlt Konto, Kanal und Modell ab; Wiederholungen mit Kontowechsel bleiben bestehen. Andere Netzwerkfehler und allgemeine 5xx zählen nicht. Unabhängig vom Wettlauf; 0 schaltet sie aus. Ersetzt keine Kontingent- oder Berechtigungs-Abkühlung.',
+  'settings.zeroDisables': '0 schaltet diese Einstellung aus',
+  'cooldowns.race': 'Wettlauf-Abkühlung',
+  'cooldowns.busy': 'Überlastungs-Abkühlung',
+  'cooldowns.clearShortHint':
+    'Nur diese kurze Abkühlungsart für Konto, Kanal und Modell löschen; andere Gründe bleiben erhalten',
   'settings.environmentLocked': 'Durch die Umgebungsvariable {key} festgelegt; hier nicht änderbar',
   'settings.proxyHelp':
     'HTTP-, HTTPS- oder SOCKS5-Proxy. Mehrere durch Kommas getrennt bilden einen Pool; leer nutzt den Systemproxy',

@@ -50,6 +50,8 @@ type accountWorkerManager struct {
 	pageHeaders map[string]http.Header
 	// warming 表示一轮预热已开始而还没有给出第一个结果
 	warming atomic.Bool
+	// readyIDs 可替代就绪 Worker 查询，离线协议测试沿用完整租约调度而不启动 Worker；构造后不变。
+	readyIDs func() []string
 }
 
 type accountWorker struct {
@@ -743,6 +745,9 @@ func (manager *accountWorkerManager) occupiedWorkers() workerOccupancy {
 
 // ReadyWarmAccountIDs 返回可生成 proof 的预热账户
 func (manager *accountWorkerManager) ReadyWarmAccountIDs() []string {
+	if manager.readyIDs != nil {
+		return manager.readyIDs()
+	}
 	manager.mu.RLock()
 	accounts := make([]*accountWorker, 0, len(manager.accounts))
 	for _, account := range manager.accounts {

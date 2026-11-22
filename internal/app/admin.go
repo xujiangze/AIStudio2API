@@ -1389,7 +1389,11 @@ func (admin *runtimeAdmin) UpdateRuntimeConfig(_ context.Context, value api.Runt
 		SearchModelAliases: value.SearchModelAliases, DiscoverHiddenModels: value.DiscoverHiddenModels, GoogleSearch: value.GoogleSearch, StripThoughtSignatures: value.StripThoughtSignatures,
 		ContinuationRewrite: value.ContinuationRewrite, ContinuationPrompt: strings.TrimSpace(value.ContinuationPrompt),
 		FirstEventHedge: strings.ToLower(strings.TrimSpace(value.FirstEventHedge)), FirstEventHedgeModels: strings.TrimSpace(value.FirstEventHedgeModels), AuthStates: value.AuthStates, ListenAddr: value.ListenAddr, PreviewListenAddr: value.PreviewListenAddr,
-		ProxyAPIKey: value.APIKey, Proxy: value.Proxy, InitTimeout: initTimeout, RequestTimeout: requestTimeout,
+		FirstEventHedgeMaxConcurrency: value.FirstEventHedgeMaxConcurrency,
+		FirstEventTimeoutSeconds:      value.FirstEventTimeoutSeconds,
+		FirstEventRaceCooldownSeconds: value.FirstEventRaceCooldownSeconds,
+		ModelBusyCooldownSeconds:      value.ModelBusyCooldownSeconds,
+		ProxyAPIKey:                   value.APIKey, Proxy: value.Proxy, InitTimeout: initTimeout, RequestTimeout: requestTimeout,
 		WarmWorkerLimit: value.WarmWorkerLimit, MaxActiveWorkers: value.MaxActiveWorkers,
 		WarmStartupConcurrency: value.WarmStartupConcurrency,
 		PerAccountConcurrency:  value.PerAccountConcurrency,
@@ -1478,20 +1482,55 @@ func (admin *runtimeAdmin) Cooldowns(context.Context) ([]api.AdminCooldown, erro
 				ModelID: modelID, Scope: scopes[key], Until: cooldown.Until, Reason: cooldown.Reason,
 			})
 		}
+		// 短项独立展示，不与旧冷却的 effective 合并，避免更长的额度冷却吞掉短原因。
+		shortScopes := make([]string, 0, len(account.ShortCooldowns))
+		for scope := range account.ShortCooldowns {
+			shortScopes = append(shortScopes, scope)
+		}
+		sort.Strings(shortScopes)
+		for _, scope := range shortScopes {
+			channel, modelID := aistudio.ParseShortCooldownScope(scope)
+			if channel == "" || modelID == "" {
+				continue
+			}
+			for _, kind := range []aistudio.ShortCooldownKind{aistudio.ShortCooldownRace, aistudio.ShortCooldownBusy} {
+				cooldown, exists := account.ShortCooldowns[scope][kind]
+				if !exists || !cooldown.Until.After(now) {
+					continue
+				}
+				cooldowns = append(cooldowns, api.AdminCooldown{
+					AccountID: account.ID, AccountLabel: account.Label, Channel: string(channel),
+					ModelID: modelID, Scope: scope, Kind: kind, Until: cooldown.Until, Reason: cooldown.Reason,
+				})
+			}
+		}
 	}
 	return cooldowns, nil
 }
 
-// ClearCooldown 手动清除账户在一个作用域上的冷却，并推送新的冷却列表与账户状态
-func (admin *runtimeAdmin) ClearCooldown(ctx context.Context, accountID string, scope string) error {
+// ClearCooldown 手动清除账户在一个作用域上的指定类型冷却，空类型只清旧记录，并推送新的冷却列表与账户状态
+func (admin *runtimeAdmin) ClearCooldown(ctx context.Context, accountID string, scope string, kind aistudio.ShortCooldownKind) error {
+	if kind != "" && kind != aistudio.ShortCooldownRace && kind != aistudio.ShortCooldownBusy {
+		return &adminOperationError{status: http.StatusBadRequest, code: "invalid_request", message: "无效的短冷却类型: " + string(kind)}
+	}
+	if kind != "" {
+		if channel, modelID := aistudio.ParseShortCooldownScope(scope); channel == "" || modelID == "" {
+			return &adminOperationError{status: http.StatusBadRequest, code: "invalid_request", message: "无效的短冷却作用域: " + scope}
+		}
+	}
 	account, err := admin.account(accountID)
 	if err != nil {
 		return err
 	}
-	if err := admin.pool.ClearCooldown(accountID, scope); err != nil {
-		return err
+	if kind == "" {
+		err = admin.pool.ClearCooldown(accountID, scope)
+	} else {
+		err = admin.pool.ClearShortCooldown(accountID, scope, kind)
 	}
-	admin.requests.log(account.Label, "INFO", "冷却已手动清除", "scope", scope)
+	if err != nil {
+		return accountOperationError(err)
+	}
+	admin.requests.log(account.Label, "INFO", "冷却已手动清除", "scope", scope, "kind", kind)
 	cooldowns, _ := admin.Cooldowns(ctx)
 	admin.requests.publish(api.AdminEvent{Type: "cooldowns", Data: cooldowns})
 	accounts, _ := admin.Accounts(ctx)
@@ -1743,7 +1782,11 @@ func runtimeConfigDTO(cfg config.Config) api.RuntimeConfig {
 		SearchModelAliases: cfg.SearchModelAliases, DiscoverHiddenModels: cfg.DiscoverHiddenModels, GoogleSearch: cfg.GoogleSearch, StripThoughtSignatures: cfg.StripThoughtSignatures,
 		ContinuationRewrite: cfg.ContinuationRewrite, ContinuationPrompt: cfg.ContinuationPrompt,
 		FirstEventHedge: cfg.FirstEventHedge, FirstEventHedgeModels: cfg.FirstEventHedgeModels, AuthStates: cfg.AuthStates, ListenAddr: cfg.ListenAddr, APIKey: cfg.ProxyAPIKey,
-		ActiveListenAddr: cfg.ListenAddr, ActiveAPIKey: cfg.ProxyAPIKey,
+		FirstEventHedgeMaxConcurrency: cfg.FirstEventHedgeMaxConcurrency,
+		FirstEventTimeoutSeconds:      cfg.FirstEventTimeoutSeconds,
+		FirstEventRaceCooldownSeconds: cfg.FirstEventRaceCooldownSeconds,
+		ModelBusyCooldownSeconds:      cfg.ModelBusyCooldownSeconds,
+		ActiveListenAddr:              cfg.ListenAddr, ActiveAPIKey: cfg.ProxyAPIKey,
 		PreviewListenAddr: cfg.PreviewListenAddr, ActivePreviewListenAddr: cfg.PreviewListenAddr,
 		Proxy: cfg.Proxy, InitTimeout: cfg.InitTimeout.String(), RequestTimeout: cfg.RequestTimeout.String(),
 		WarmWorkerLimit: cfg.WarmWorkerLimit, MaxActiveWorkers: cfg.MaxActiveWorkers,

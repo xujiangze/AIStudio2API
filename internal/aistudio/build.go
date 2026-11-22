@@ -151,6 +151,11 @@ func buildUsesUnary(model Model) bool {
 	return len(model.AccessModes) > 0 && !modelAllowedByTier(model, BenefitTierFree)
 }
 
+// buildRequestUsesUnary 以实际目录条目判断 Build 请求模式，供发送与首事件预筛共用。
+func buildRequestUsesUnary(request GenerateRequest, model Model) bool {
+	return request.Unary || buildUsesUnary(model)
+}
+
 // buildBindingPrompt 从 Build 代理请求体取出 WAA binding：路径与请求体以空格连接
 func buildBindingPrompt(body []byte) (string, error) {
 	var wire []any
@@ -1033,7 +1038,7 @@ func buildProxyResponseBody(raw json.RawMessage, path string) ([]byte, error) {
 
 // sendBuild 编码并发送 Build 代理请求，返回响应与含 finishReason 校验的解码
 func (c *Client) sendBuild(ctx context.Context, request GenerateRequest, entry modelEntry) (*RPCResponse, func(io.Reader, func(Event) error) error, error) {
-	unary := request.Unary || buildUsesUnary(entry.model)
+	unary := buildRequestUsesUnary(request, entry.model)
 	response, decoder, err := c.sendBuildMode(ctx, request, entry, unary, "")
 	var rpcErr *RPCError
 	if err != nil && request.Unary && !buildUsesUnary(entry.model) && ctx.Err() == nil && errors.As(err, &rpcErr) {

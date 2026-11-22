@@ -2015,21 +2015,41 @@ export const messages: Record<TranslationKey, string> = {
   'settings.unitSeconds': 'seconds',
   'settings.unitMinutes': 'minutes',
   'settings.timeUnit': 'Time unit',
-  'settings.firstEventHedge': 'Hedge slow first tokens',
+  'settings.firstEventHedge': 'First-event racing',
   'settings.firstEventHedgeHelp':
-    'When a request has no first token for a while, send it again on an idle account; the first to answer continues and the other is cancelled',
+    'Time starts when the primary acquires an account. If no first event arrives by the threshold, send a backup on a different ready account with a free slot; the first to receive an event continues. A first event is the first non-error upstream event, including thought summaries, not necessarily visible text. Backups also consume quota.',
+  'settings.firstEventPolicyHint':
+    'Racing, the total first-event deadline and busy cooldown are independent. Saved changes apply to new requests; in-flight requests keep their policy. Changing or disabling cooldowns does not clear existing records.',
   'settings.firstEventHedgeOff': 'Off',
   'settings.firstEventHedgeAuto': 'Auto (recent p95)',
   'settings.firstEventHedgeCustom': 'Custom',
   'settings.firstEventHedgeSeconds': 'Wait in seconds',
   'settings.firstEventHedgeUnit': 'seconds',
   'settings.firstEventHedgeAutoHint':
-    'Each model and channel waits for its first-token p95 over the last 24 hours; no hedge with fewer than 20 requests',
+    'Each model and channel uses its first-event p95 over the last 24 hours; no backup with fewer than 20 requests',
   'settings.firstEventHedgeCustomHint':
-    'For reference, {model} first-token p95 over the last 24 hours: {seconds} s',
-  'settings.firstEventHedgeModels': 'Models to hedge',
+    'For reference, {model} first-event p95 over the last 24 hours: {seconds} s',
+  'settings.firstEventHedgeModels': 'Racing model scope',
+  'settings.hedgeModelsAll': 'All eligible models',
   'settings.firstEventHedgeModelsHelp':
-    'A backup request counts as one request even when cancelled. Only gemini-4-argon on Ultra accounts has a per-token quota; other models have per-request quotas and are not recommended',
+    'All models is stored as *. An empty selected list races no models. Only ordinary foreground generation is eligible, including non-streaming requests that receive upstream events incrementally. Background tasks, Deep Research, assistant routes, native non-streaming Build and standalone image/video APIs are excluded. This selection limits racing, not the independent first-event deadline.',
+  'settings.firstEventHedgeMaxConcurrency': 'Global backup concurrency limit',
+  'settings.firstEventHedgeMaxConcurrencyHelp':
+    'Maximum active backups across all requests; must be a positive integer and still respects per-account limits. Lowering it does not cancel running backups.',
+  'settings.firstEventTimeout': 'Total first-event wait limit',
+  'settings.firstEventTimeoutHelp':
+    'Starts with the first account lease. Preparation, account switches, later queueing and backups do not reset it. If no non-error event arrives, cancel all attempts. Initial account queueing is excluded. Independent of racing and model selection, with the same eligible request scope; 0 disables it. Does not limit pauses after the first event.',
+  'settings.firstEventRaceCooldown': 'Race cooldown',
+  'settings.firstEventRaceCooldownHelp':
+    'Cool the primary account only when a backup on another account receives the first event first and supersedes the still-waiting primary. Scoped to account, channel and model. 0 disables it; turning racing off prevents new race cooldowns but keeps existing records.',
+  'settings.modelBusyCooldown': 'Busy cooldown',
+  'settings.modelBusyCooldownHelp':
+    'A model-busy HTTP 503 or protocol code 14 cools that account, channel and model while preserving account-switch retries. Other network errors and generic 5xx responses do not qualify. Independent of racing; 0 disables it. Does not replace quota or permission cooldowns.',
+  'settings.zeroDisables': '0 disables this setting',
+  'cooldowns.race': 'Race cooldown',
+  'cooldowns.busy': 'Busy cooldown',
+  'cooldowns.clearShortHint':
+    'Clear only this short-cooldown kind for this account, channel and model; keep other reasons',
   'settings.environmentLocked': 'Set by the {key} environment variable; cannot be changed here',
   'settings.proxyHelp':
     'HTTP, HTTPS or SOCKS5 proxy. Separate several with commas to form a pool; empty uses the system proxy',

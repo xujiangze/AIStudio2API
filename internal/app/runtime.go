@@ -110,8 +110,7 @@ func newRuntime(
 	pooled.ContinuationPrompt = cfg.ContinuationPrompt
 	service := newTrackedService(lifecycle, pooled, pool, requests, workers, cfg.RequestTimeout)
 	service.buildNativeNonstream = cfg.BuildNativeNonstream
-	service.hedgeAuto, service.hedgeAfter, _ = config.ParseFirstEventHedge(cfg.FirstEventHedge)
-	service.hedgeModels = config.ModelList(cfg.FirstEventHedgeModels)
+	service.SetFirstEventPolicy(cfg)
 	service.discoverHiddenModels = cfg.DiscoverHiddenModels
 	mapping, _ := config.ParseModelMapping(cfg.ModelMapping)
 	service.SetRequestPolicy(mapping, cfg.MaxAccountSwitches)
@@ -174,13 +173,11 @@ type trackedService struct {
 	catalogRoundDone chan struct{}
 	// catalogRoundWake 让巡检循环立即开始请求缺少模型时排定的一轮
 	catalogRoundWake chan struct{}
-	// hedgeAuto 与 hedgeAfter 是首事件超时备用请求的自适应开关与自定义等待
-	hedgeAuto  bool
-	hedgeAfter time.Duration
-	// hedgeModels 是发起备用请求的模型
-	hedgeModels []string
-	// hedges 是正在进行的备用请求数
-	hedges atomic.Int32
+	// firstPolicy 是之后的请求使用的首事件策略，hedgeLimit 只限制后续备用启动
+	firstPolicy atomic.Pointer[firstEventPolicy]
+	hedgeLimit  atomic.Int64
+	// hedges 是仍占用全局备用槽位的请求数，落败请求清理完才归还
+	hedges atomic.Int64
 	// maxAccountSwitches 是一个请求因非额度失败换号的次数上限，保存设置后立即替换
 	maxAccountSwitches atomic.Int64
 	// modelMapping 是 MODEL_MAPPING 解析出的模型别名，保存设置后立即替换
@@ -229,6 +226,7 @@ func newTrackedService(
 		publishStatus: func() {},
 	}
 	tracked.SetRequestPolicy(nil, config.DefaultMaxAccountSwitches)
+	tracked.SetFirstEventPolicy(config.Default())
 	return tracked
 }
 
@@ -1775,7 +1773,7 @@ func (service *trackedService) acquireWarmLease(ctx context.Context, selection a
 			}
 			failedWorkers[accountID] = struct{}{}
 			promoteFailure = promoteErr
-			if *failures++; int64(*failures) > service.maxAccountSwitches.Load() {
+			if !service.recordAccountFailure(ctx, failures) {
 				return nil, promotionFailure(service.pool, selection, promoteErr)
 			}
 			continue
@@ -2020,6 +2018,7 @@ func requestInputBytes(request aistudio.GenerateRequest) int64 {
 
 // Generate 获取唯一账户并转发规范事件流
 func (service *trackedService) Generate(ctx context.Context, request aistudio.GenerateRequest) (<-chan aistudio.Event, error) {
+	ctx = service.generationContext(ctx)
 	generationStartedAt := time.Now()
 	model, config, suffixErr := aistudio.ApplyModelSuffix(service.mappedModel(request.Model), request.Config)
 	request.Model, request.Config = model, config
@@ -2079,12 +2078,20 @@ type generateAttempt struct {
 	first            aistudio.Event
 	firstAt          time.Time
 	err              error
+	budgetCounted    bool
+	streaming        atomic.Bool
+	modeChanged      chan struct{}
 	cancel           context.CancelFunc
 	done             chan struct{}
 	// serving 是正在生成回答的账户租约，续写轮换账户后为新账户的租约
 	serving atomic.Pointer[aistudio.AccountLease]
 	// failures 是请求已用掉的换号次数，续写轮换号在此基础上计数
 	failures int
+	// cleanupOnce 让失败、取代与取消只清理一次，hedgeRelease 绑定全局备用槽
+	cleanupOnce  sync.Once
+	cleanupDone  chan struct{}
+	cleanupErr   error
+	hedgeRelease func()
 }
 
 // generateRetry 是生成请求跨尝试的换号与恢复状态
@@ -2137,6 +2144,11 @@ func (service *trackedService) generateWithRetry(
 	destination chan<- aistudio.Event,
 ) {
 	requestedAccountID := strings.TrimSpace(request.AccountID)
+	policy := generationSettings(requestCtx)
+	guard, stopFirst := newFirstEventContext(requestCtx, policy.first.timeout)
+	requestCtx = guard
+	finishRequest := cancel
+	cancel = func() { stopFirst(); finishRequest() }
 	modelID := strings.TrimPrefix(strings.TrimSpace(request.Model), "models/")
 	continuationRounds := service.pool.OutputContinuationRounds(modelID, request.Config.MaxOutputTokens)
 	unbound := requestedAccountID == "" && resourceID == ""
@@ -2154,8 +2166,7 @@ func (service *trackedService) generateWithRetry(
 	} else {
 		preferredAccountID = service.pool.InlineMediaAccount(request.Contents)
 	}
-	hedgeable := !request.Background && !assistant && !service.pool.InteractionAgentModel(modelID) && (service.hedgeAuto || service.hedgeAfter > 0) && slices.Contains(service.hedgeModels, modelID)
-	hedged := false
+	hedgeable := !request.Background && !assistant && !service.pool.InteractionAgentModel(modelID) && policy.first.hedgesModel(modelID)
 	var winner *generateAttempt
 	var activity *upstreamActivity
 	var err error
@@ -2280,23 +2291,32 @@ func (service *trackedService) generateWithRetry(
 			service.requests.logRequestProgress(request.ID, accountLabel, "INFO", "排队结束", "waited", time.Since(queueStartedAt))
 		}
 		service.requests.logRequestProgress(request.ID, accountLabel, "INFO", "等待上游响应")
+		guard.begin()
+		streaming := service.firstEventStreaming(requestCtx, request, lease)
+		if streaming {
+			guard.arm()
+		} else {
+			guard.suspend()
+		}
 		primary := service.startAttempt(requestCtx, request, resourceID, modelID, fallbackReason, lease, selection, false, retry.failures)
 		var plan *hedgePlan
-		if hedgeable && !hedged {
-			if delay, ok := service.hedgeDelay(modelID, string(lease.Channel())); ok {
-				fixed := resourceID != "" || requestedAccountID != ""
-				plan = &hedgePlan{delay: delay, selections: service.hedgeSelections(selection, lease.Account().ID, fixed, retry.attempted)}
+		if hedgeable {
+			if delay, ok := service.hedgeDelay(policy.first, modelID, string(lease.Channel())); ok {
+				plan = &hedgePlan{delay: delay}
+				plan.selections = func() []aistudio.AccountSelection {
+					return service.hedgeSelections(selection, lease.Account().ID, resourceID != "" || requestedAccountID != "", retry.attempted)
+				}
+				plan.allowed = func() bool { return service.canSwitchAccount(requestCtx) }
 				plan.start = func(hedgeLease *aistudio.AccountLease, hedgeSelection aistudio.AccountSelection) *generateAttempt {
-					hedged = true
 					retry.attempted[hedgeLease.Account().ID] = struct{}{}
 					return service.startAttempt(requestCtx, request, resourceID, modelID, fallbackReason, hedgeLease, hedgeSelection, true, retry.failures)
 				}
 			}
 		}
 		var last attemptOutcome
-		winner = service.awaitFirstEvent(requestCtx, request, modelID, primary, plan, func(failed *generateAttempt, sameAccountPending bool) {
+		winner = service.awaitFirstEvent(requestCtx, request, modelID, primary, plan, retry, func(failed *generateAttempt, outcome attemptOutcome) {
 			activity = failed.activity
-			last = service.settleAttempt(requestCtx, request.ID, modelID, failed, retry, !sameAccountPending)
+			last = outcome
 			lastChannel = failed.serving.Load().Channel()
 			if _, seen := settled[last.accountID]; !failed.hedge && !seen {
 				settled[last.accountID] = struct{}{}
@@ -2305,6 +2325,10 @@ func (service *trackedService) generateWithRetry(
 				}
 			}
 		})
+		if winner != nil && !guard.received() {
+			service.discardAttempt(requestCtx, request.ID, winner)
+			winner = nil
+		}
 		if winner != nil {
 			activity = winner.activity
 			if winner.hedge {
@@ -2351,7 +2375,11 @@ func (service *trackedService) generateWithRetry(
 			break
 		}
 		err = last.err
-		if !last.retryable {
+		if requestCtx.Err() != nil {
+			err = requestCtx.Err()
+			break
+		}
+		if !last.retryable && !last.recoverWorker || !service.canSwitchAccount(requestCtx) {
 			break
 		}
 		if len(broken) == 2 {
@@ -2380,6 +2408,12 @@ func (service *trackedService) generateWithRetry(
 		service.requests.logRequestProgress(request.ID, last.accountLabel, "WARN", "账号切换", attemptFields(modelID, err)...)
 	}
 	if winner == nil {
+		if requestCtx.Err() != nil {
+			err = requestCtx.Err()
+		}
+		if err == nil {
+			err = aistudio.ErrNoEligibleAccount
+		}
 		if disconnected(err) {
 			service.disconnects.record(modelID, lastChannel, true, time.Now())
 		}
@@ -2436,14 +2470,25 @@ func (service *trackedService) startAttempt(
 ) *generateAttempt {
 	unbound := strings.TrimSpace(request.AccountID) == "" && resourceID == ""
 	request.AccountID = lease.Account().ID
+	proxy, generation := "", uint64(0)
+	if service.proxies != nil {
+		proxy = service.proxies.Binding(request.AccountID)
+	}
+	if service.workers != nil {
+		generation = service.workers.WorkerGeneration(request.AccountID)
+	}
 	attempt := &generateAttempt{
 		lease: lease, selection: selection, hedge: hedge, unbound: unbound, accountLabel: lease.Account().Config.Label,
-		proxy: service.proxies.Binding(request.AccountID), workerGeneration: service.workers.WorkerGeneration(request.AccountID),
-		startedAt: time.Now(), activity: &upstreamActivity{}, done: make(chan struct{}), failures: failures,
+		proxy: proxy, workerGeneration: generation,
+		startedAt: time.Now(), activity: &upstreamActivity{}, done: make(chan struct{}), failures: failures, cleanupDone: make(chan struct{}), modeChanged: make(chan struct{}, 1),
 	}
+	attempt.streaming.Store(service.firstEventStreaming(requestCtx, request, lease))
 	attempt.serving.Store(lease)
 	attemptCtx, cancel := context.WithCancel(requestCtx)
 	attempt.cancel = cancel
+	if hedge {
+		attemptCtx = aistudio.ContextWithStreamingOnly(attemptCtx)
+	}
 	go func() {
 		defer close(attempt.done)
 		service.runAttempt(attemptCtx, request, resourceID, modelID, fallbackReason, attempt)
@@ -2474,7 +2519,25 @@ func (service *trackedService) runAttempt(
 	}
 	originalContents := request.Contents
 	ctx = aistudio.ContextWithAccountLease(ctx, lease)
-	ctx = aistudio.ContextWithUpstreamModeObserver(ctx, service.upstreamModeObserver(request.ID, lease, fallbackReason))
+	modeObserver := service.upstreamModeObserver(request.ID, lease, fallbackReason)
+	ctx = aistudio.ContextWithUpstreamModeObserver(ctx, func(method, mode string, round int, reason string) {
+		if round == 0 && !request.Background && !service.pool.AssistantModel(modelID) && !service.pool.InteractionAgentModel(modelID) {
+			streaming := mode == "stream"
+			attempt.streaming.Store(streaming)
+			if guard := firstEventGuard(ctx); guard != nil {
+				if streaming {
+					guard.arm()
+				} else {
+					guard.suspend()
+				}
+			}
+			select {
+			case attempt.modeChanged <- struct{}{}:
+			default:
+			}
+		}
+		modeObserver(method, mode, round, reason)
+	})
 	var err error
 	copiedFileCount := 0
 	if resourceID != "" {
@@ -2584,11 +2647,14 @@ func (service *trackedService) continuationAccount(ctx context.Context, requestI
 			return nil, stateErr
 		}
 	}
+	if stateErr := service.coolBusyAccount(ctx, requestID, modelID, current, err); stateErr != nil {
+		return nil, stateErr
+	}
 	if releaseErr := current.Release(); releaseErr != nil {
 		return nil, releaseErr
 	}
 	if !quota && !errors.Is(err, aistudio.ErrAccountCoolingDown) {
-		if attempt.failures++; int64(attempt.failures) > service.maxAccountSwitches.Load() {
+		if !service.recordAccountFailure(ctx, &attempt.failures) {
 			return nil, aistudio.ErrNoEligibleAccount
 		}
 	}
@@ -2719,9 +2785,14 @@ func (service *trackedService) settleAttempt(
 	if lease != attempt.lease {
 		proxy, workerGeneration = service.proxies.Binding(accountID), service.workers.WorkerGeneration(accountID)
 	}
+	if errors.Is(attempt.err, aistudio.ErrFirstEventNonstreaming) {
+		if err := service.cleanupAttempt(attempt); err != nil {
+			service.requests.logRequestProgress(requestID, accountLabel, "WARN", "尝试清理失败", "error", err)
+		}
+		return attemptOutcome{err: attempt.err, retryable: true, accountID: accountID, accountLabel: accountLabel}
+	}
 	missingInlineMedia := false
 	if attempt.copies != nil {
-		err = errors.Join(err, attempt.copies.Cleanup())
 		if !retry.missingInlineMedia && requestCtx.Err() == nil {
 			var forgetErr error
 			missingInlineMedia, forgetErr = attempt.copies.ForgetMissingInlineMedia(requestCtx, attempt.err)
@@ -2825,6 +2896,12 @@ func (service *trackedService) settleAttempt(
 		retryable = true
 	}
 	if missingInlineMedia {
+		if attempt.budgetCounted {
+			if settings := generationSettings(requestCtx); settings != nil {
+				settings.failures.Add(-1)
+			}
+			attempt.budgetCounted = false
+		}
 		retry.missingInlineMedia = true
 		retry.recoveryAccountID = accountID
 		delete(retry.attempted, accountID)
@@ -2840,7 +2917,11 @@ func (service *trackedService) settleAttempt(
 	if !quotaFailure && !buildRejected && !coolingDown {
 		retry.attemptFailure = err
 	}
-	if releaseErr := lease.Release(); releaseErr != nil {
+	if stateErr := service.coolBusyAccount(requestCtx, requestID, modelID, lease, err); stateErr != nil {
+		err = errors.Join(err, stateErr)
+		retryable = false
+	}
+	if releaseErr := service.cleanupAttempt(attempt); releaseErr != nil {
 		return attemptOutcome{err: errors.Join(err, releaseErr), accountID: accountID, accountLabel: accountLabel}
 	}
 	service.workers.spareForCooling(requestCtx, attempt.selection, accountID, cooledUntil)
@@ -2859,8 +2940,12 @@ func (service *trackedService) settleAttempt(
 		}
 	}
 	if retryable && !quotaFailure && !buildRejected && !missingInlineMedia && !recoverWorker && !coolingDown {
-		retry.failures++
-		retryable = int64(retry.failures) <= service.maxAccountSwitches.Load()
+		if attempt.budgetCounted {
+			retry.failures = attempt.failures
+			retryable = service.canSwitchAccount(requestCtx)
+		} else {
+			retryable = service.recordAccountFailure(requestCtx, &retry.failures)
+		}
 	}
 	return attemptOutcome{err: err, retryable: retryable, recoverWorker: recoverWorker, accountID: accountID, accountLabel: accountLabel}
 }
@@ -2907,6 +2992,9 @@ func firstGenerateEvent(ctx context.Context, source <-chan aistudio.Event, onWai
 				return aistudio.Event{}, errStreamClosedBeforeFirstEvent
 			}
 			if event.Kind != aistudio.EventError {
+				if guard := firstEventGuard(ctx); guard != nil && !guard.received() {
+					return aistudio.Event{}, guard.Err()
+				}
 				return event, nil
 			}
 			for {
@@ -3262,6 +3350,9 @@ func (service *trackedService) forwardEvents(
 
 // settleStreamError 按首个事件之前的规则处理首个事件之后的上游错误：认证失败时确认账户会话，服务受限时标记账户，权限拒绝时冷却账户，403 协议错误码 7 与 401 改为账户暂时不可用的 503
 func (service *trackedService) settleStreamError(requestCtx context.Context, requestID string, modelID string, lease *aistudio.AccountLease, err error) error {
+	if stateErr := service.coolBusyAccount(requestCtx, requestID, modelID, lease, err); stateErr != nil {
+		return errors.Join(err, stateErr)
+	}
 	if aistudio.DefinitiveAuthenticationFailure(err) {
 		if stateErr := lease.ConfirmAuthenticationFailure(requestCtx, err); stateErr != nil {
 			return errors.Join(err, stateErr)

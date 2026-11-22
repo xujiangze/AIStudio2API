@@ -3,6 +3,7 @@ package app
 import (
 	"cmp"
 	"context"
+	"errors"
 	"slices"
 	"strings"
 	"sync"
@@ -20,9 +21,6 @@ const firstEventSampleAge = 24 * time.Hour
 
 // firstEventMinSamples 是自适应阈值需要的最少样本数，不足时不发起备用请求
 const firstEventMinSamples = 20
-
-// hedgeLimit 是同时进行的备用请求数上限
-const hedgeLimit = 4
 
 // firstEventKey 是首事件样本所属的模型与通道
 type firstEventKey struct {
@@ -119,158 +117,325 @@ func percentile95(waits []time.Duration) time.Duration {
 	return waits[(len(waits)*95+99)/100-1]
 }
 
-// hedgeDelay 返回原请求等待首事件多久后发起备用请求，不发起时第二个返回值为 false
-func (service *trackedService) hedgeDelay(modelID, channel string) (time.Duration, bool) {
-	if !service.hedgeAuto {
-		return service.hedgeAfter, service.hedgeAfter > 0
+// hedgeDelay 返回快照策略对本模型与通道的竞速阈值
+func (service *trackedService) hedgeDelay(policy firstEventPolicy, modelID, channel string) (time.Duration, bool) {
+	if !policy.auto {
+		return policy.after, policy.after > 0
 	}
 	p95, samples := service.requests.firstEvents.p95(modelID, channel, time.Now())
 	return p95, samples >= firstEventMinSamples
 }
 
-// hedgeSelections 返回备用请求依次尝试的账户选择：引用已上传文件或指定账户的请求只用原账户；其余先用尚未尝试的其他账户，再用原账户
+// hedgeSelections 只选择尚未尝试的其他账户，固定账户或文件绑定不改换归属
 func (service *trackedService) hedgeSelections(primary aistudio.AccountSelection, accountID string, fixed bool, attempted map[string]struct{}) []aistudio.AccountSelection {
-	same := primary
-	same.AllowedAccountIDs = nil
-	same.AccountID = accountID
 	if fixed {
-		return []aistudio.AccountSelection{same}
+		return nil
 	}
 	other := primary
-	other.AllowedAccountIDs = nil
+	other.AccountID = ""
+	other.PreferredAccountID = ""
+	other.AllowedAccountIDs = []string{}
 	for _, id := range service.pool.EnabledAccounts() {
-		if _, tried := attempted[id]; !tried {
+		if _, tried := attempted[id]; !tried && id != accountID && (primary.AllowedAccountIDs == nil || slices.Contains(primary.AllowedAccountIDs, id)) {
 			other.AllowedAccountIDs = append(other.AllowedAccountIDs, id)
 		}
 	}
-	return []aistudio.AccountSelection{other, same}
+	return []aistudio.AccountSelection{other}
 }
 
-// tryHedgeLease 按顺序立即取得备用请求的租约：其他账户只用 Worker 已就绪且没有活动请求的，原账户用其余并发槽位；都没有时返回 nil
-func (service *trackedService) tryHedgeLease(ctx context.Context, selections []aistudio.AccountSelection) (*aistudio.AccountLease, aistudio.AccountSelection) {
+// tryHedgeLease 使用已经就绪且仍有槽位的不同账户，不为备用请求冷启动 Worker
+func (service *trackedService) tryHedgeLease(ctx context.Context, request aistudio.GenerateRequest, selections []aistudio.AccountSelection) (*aistudio.AccountLease, aistudio.AccountSelection) {
 	for _, selection := range selections {
-		if selection.AccountID == "" && len(selection.AllowedAccountIDs) == 0 {
+		if len(selection.AllowedAccountIDs) == 0 {
 			continue
 		}
-		groups, err := service.pool.ClassifyCandidates(ctx, selection, service.workers.ReadyWarmAccountIDs())
+		groups, err := service.pool.ClassifyCandidates(ctx, selection, service.readyWarmAccountIDs())
 		if err != nil {
 			continue
 		}
-		idle := groups.WarmReady
-		if selection.AccountID != "" {
-			idle = append(slices.Clone(idle), groups.WarmAvailable...)
-		}
-		if len(idle) == 0 {
-			continue
-		}
-		selection.AllowedAccountIDs = idle
-		if lease, _, err := service.pool.TryAcquireFor(ctx, selection); err == nil {
-			return lease, selection
+		available := append(slices.Clone(groups.WarmReady), groups.WarmAvailable...)
+		for _, id := range available {
+			candidate := selection
+			candidate.AccountID = id
+			candidate.AllowedAccountIDs = []string{id}
+			if modes, ok := service.service.(interface {
+				FirstEventStreamingMode(context.Context, aistudio.GenerateRequest, string, aistudio.Channel) (bool, bool)
+			}); ok && candidate.Channel != "" {
+				if streaming, known := modes.FirstEventStreamingMode(ctx, request, id, candidate.Channel); known && !streaming {
+					continue
+				}
+			}
+			lease, _, err := service.pool.TryAcquireFor(ctx, candidate)
+			if err != nil || lease == nil {
+				continue
+			}
+			if modes, ok := service.service.(interface {
+				FirstEventStreamingMode(context.Context, aistudio.GenerateRequest, string, aistudio.Channel) (bool, bool)
+			}); ok {
+				streaming, known := modes.FirstEventStreamingMode(ctx, request, id, lease.Channel())
+				if known && !streaming {
+					_ = lease.Release()
+					continue
+				}
+			} else if !service.firstEventStreaming(ctx, request, lease) {
+				_ = lease.Release()
+				continue
+			}
+			return lease, candidate
 		}
 	}
 	return nil, aistudio.AccountSelection{}
 }
 
-// hedgePlan 是原请求可以发起的备用请求：等待阈值、依次尝试的账户选择与启动方式
 type hedgePlan struct {
 	delay      time.Duration
-	selections []aistudio.AccountSelection
+	selections func() []aistudio.AccountSelection
+	allowed    func() bool
 	start      func(*aistudio.AccountLease, aistudio.AccountSelection) *generateAttempt
 }
 
-// awaitFirstEvent 等待原请求的首事件，plan 不为 nil 时到阈值后发起备用请求，先出首事件的一方胜出，全部失败时返回 nil；failed 的第二个参数表示同账户的另一尝试仍在等待首事件
+func (service *trackedService) reserveHedge() (func(), bool) {
+	for {
+		used := service.hedges.Load()
+		if used >= service.hedgeLimit.Load() {
+			return nil, false
+		}
+		if service.hedges.CompareAndSwap(used, used+1) {
+			var once sync.Once
+			return func() { once.Do(func() { service.hedges.Add(-1) }) }, true
+		}
+	}
+}
+
+// awaitFirstEvent 仲裁两份尝试；失败结算独立进行，不挡住存活尝试出首事件
 func (service *trackedService) awaitFirstEvent(
 	requestCtx context.Context,
 	request aistudio.GenerateRequest,
 	modelID string,
 	primary *generateAttempt,
 	plan *hedgePlan,
-	failed func(*generateAttempt, bool),
+	retry *generateRetry,
+	failed func(*generateAttempt, attemptOutcome),
 ) *generateAttempt {
+	type settlement struct {
+		attempt *generateAttempt
+		outcome attemptOutcome
+		retry   *generateRetry
+	}
 	primaryDone := primary.done
 	var hedge *generateAttempt
 	var hedgeDone <-chan struct{}
+	results := make(chan settlement, 2)
+	pending := 0
+	settling := false
+	allowMore := true
 	var check <-chan time.Time
+	var timer *time.Timer
 	if plan != nil {
-		timer := time.NewTimer(plan.delay - time.Since(primary.startedAt))
+		timer = time.NewTimer(max(plan.delay-time.Since(primary.startedAt), 0))
 		defer timer.Stop()
-		check = timer.C
-	}
-	defer func() {
-		if hedge != nil {
-			service.hedges.Add(-1)
+		if primary.streaming.Load() {
+			check = timer.C
 		}
-	}()
-	for primaryDone != nil || hedgeDone != nil {
+	}
+	startSettlement := func(attempt *generateAttempt, mayRecover bool) {
+		pending++
+		settling = true
+		service.reserveAttemptFailure(requestCtx, attempt)
+		snapshot := *retry
+		snapshot.attempted = make(map[string]struct{}, len(retry.attempted))
+		for id := range retry.attempted {
+			snapshot.attempted[id] = struct{}{}
+		}
+		snapshot.recoveredWorker = make(map[string]struct{}, len(retry.recoveredWorker))
+		for id := range retry.recoveredWorker {
+			snapshot.recoveredWorker[id] = struct{}{}
+		}
+		go func() {
+			outcome := service.settleAttempt(requestCtx, request.ID, modelID, attempt, &snapshot, mayRecover)
+			results <- settlement{attempt: attempt, outcome: outcome, retry: &snapshot}
+		}()
+	}
+	var queued []*generateAttempt
+	var recoveries []settlement
+	submitFailure := func(attempt *generateAttempt) {
+		service.reserveAttemptFailure(requestCtx, attempt)
+		if settling {
+			queued = append(queued, attempt)
+		} else {
+			startSettlement(attempt, true)
+		}
+	}
+	settleFinishedLoser := func(loser *generateAttempt) bool {
+		select {
+		case <-loser.done:
+			if loser.err != nil {
+				startSettlement(loser, false)
+			} else {
+				service.supersede(requestCtx, request.ID, loser, "另一尝试先返回首事件")
+			}
+			return true
+		default:
+			return false
+		}
+	}
+	cancelPending := func() {
+		if primaryDone != nil && !settleFinishedLoser(primary) {
+			service.discardAttempt(requestCtx, request.ID, primary)
+		}
+		if hedgeDone != nil && !settleFinishedLoser(hedge) {
+			service.discardAttempt(requestCtx, request.ID, hedge)
+		}
+		for _, attempt := range queued {
+			startSettlement(attempt, false)
+		}
+	}
+	for primaryDone != nil || hedgeDone != nil || pending > 0 || len(queued) > 0 {
 		select {
 		case <-primaryDone:
 			primaryDone = nil
 			check = nil
 			if primary.err == nil {
+				if guard, ok := requestCtx.(*firstEventContext); ok && !guard.received() {
+					service.discardAttempt(requestCtx, request.ID, primary)
+					cancelPending()
+					return nil
+				}
 				service.requests.firstEvents.observe(modelID, string(primary.lease.Channel()), primary.firstAt, primary.firstAt.Sub(primary.startedAt))
-				if hedgeDone != nil {
+				if hedgeDone != nil && !settleFinishedLoser(hedge) {
 					service.supersede(requestCtx, request.ID, hedge, "原请求先返回首事件")
-					service.requests.logRequestProgress(request.ID, primary.accountLabel, "INFO", "原请求胜出，取消备用请求", "hedge_account", hedge.accountLabel, "model", modelID)
+				}
+				for _, attempt := range queued {
+					startSettlement(attempt, false)
 				}
 				return primary
 			}
-			failed(primary, hedgeDone != nil && hedge.lease.Account().ID == primary.lease.Account().ID)
+			submitFailure(primary)
 		case <-hedgeDone:
 			hedgeDone = nil
 			if hedge.err == nil {
+				if guard, ok := requestCtx.(*firstEventContext); ok && !guard.received() {
+					service.discardAttempt(requestCtx, request.ID, hedge)
+					cancelPending()
+					return nil
+				}
+				if hedge.hedgeRelease != nil {
+					release := hedge.hedgeRelease
+					hedge.hedgeRelease = nil
+					go func() { <-primary.cleanupDone; release() }()
+				}
 				waited := time.Since(primary.startedAt)
-				if primaryDone != nil {
+				if primaryDone != nil && !settleFinishedLoser(primary) {
 					service.requests.firstEvents.observe(modelID, string(primary.lease.Channel()), time.Now(), waited)
+					if settings := generationSettings(requestCtx); settings != nil {
+						if err := service.markShortCooldown(request.ID, modelID, primary.serving.Load(), aistudio.ShortCooldownRace, settings.first.raceCooldown, "竞速冷却: 备用请求先返回首事件"); err != nil {
+							service.requests.logRequestProgress(request.ID, primary.accountLabel, "WARN", "账号短冷却失败", "error", err)
+						}
+					}
 					service.supersede(requestCtx, request.ID, primary, "备用请求先返回首事件")
+				}
+				for _, attempt := range queued {
+					startSettlement(attempt, false)
 				}
 				service.requests.logRequestProgress(request.ID, hedge.accountLabel, "INFO", "备用请求胜出", "primary_waited", waited, "model", modelID)
 				return hedge
 			}
-			failed(hedge, primaryDone != nil && primary.lease.Account().ID == hedge.lease.Account().ID)
+			submitFailure(hedge)
+		case result := <-results:
+			pending--
+			settling = false
+			*retry = *result.retry
+			if result.outcome.recoverWorker {
+				recoveries = append(recoveries, result)
+			}
+			failed(result.attempt, result.outcome)
+			allowMore = allowMore && result.outcome.retryable
+			if len(queued) > 0 {
+				attempt := queued[0]
+				queued = queued[1:]
+				startSettlement(attempt, true)
+			}
+			if plan != nil && primaryDone != nil && hedgeDone == nil && !settling && allowMore && plan.allowed() {
+				check = time.After(0)
+			}
+		case <-primary.modeChanged:
+			if plan != nil && primaryDone != nil && hedgeDone == nil {
+				if primary.streaming.Load() {
+					check = time.After(max(plan.delay-time.Since(primary.startedAt), 0))
+				} else {
+					check = nil
+				}
+			}
 		case <-check:
 			check = nil
-			if service.hedges.Add(1) > hedgeLimit {
-				service.hedges.Add(-1)
+			if primaryDone == nil || !primary.streaming.Load() || hedgeDone != nil || settling || !allowMore || !plan.allowed() {
+				continue
+			}
+			release, ok := service.reserveHedge()
+			if !ok {
 				check = time.After(schedulingRecheck)
 				continue
 			}
-			lease, selection := service.tryHedgeLease(requestCtx, plan.selections)
+			lease, selection := service.tryHedgeLease(requestCtx, request, plan.selections())
 			if lease == nil {
-				service.hedges.Add(-1)
+				release()
 				check = time.After(schedulingRecheck)
 				continue
 			}
 			hedge = plan.start(lease, selection)
+			hedge.hedgeRelease = release
 			hedgeDone = hedge.done
 			service.requests.logRequestProgress(request.ID, hedge.accountLabel, "WARN", "备用请求发起",
 				"primary_waited", time.Since(primary.startedAt), "threshold", plan.delay, "model", modelID)
+		case <-requestCtx.Done():
+			cancelPending()
+			return nil
 		}
+	}
+	if len(recoveries) > 0 && requestCtx.Err() == nil && service.canSwitchAccount(requestCtx) {
+		result := recoveries[0]
+		failed(result.attempt, result.outcome)
 	}
 	return nil
 }
 
-// supersede 取消落败的尝试，在访问日志记为被取代，后台等它结束后清理临时文件并释放租约
+// cleanupAttempt 只在上游尝试完全停止后释放文件、租约和备用槽位
+func (service *trackedService) cleanupAttempt(attempt *generateAttempt) error {
+	attempt.cleanupOnce.Do(func() {
+		defer close(attempt.cleanupDone)
+		attempt.cancel()
+		<-attempt.done
+		if attempt.source != nil {
+			for range attempt.source {
+			}
+		}
+		if attempt.copies != nil {
+			attempt.cleanupErr = attempt.copies.Cleanup()
+		}
+		attempt.cleanupErr = errors.Join(attempt.cleanupErr, attempt.serving.Load().Release())
+		if attempt.hedgeRelease != nil {
+			attempt.hedgeRelease()
+		}
+	})
+	return attempt.cleanupErr
+}
+
+func (service *trackedService) discardAttempt(requestCtx context.Context, requestID string, attempt *generateAttempt) {
+	attempt.cancel()
+	go func() {
+		if err := service.cleanupAttempt(attempt); err != nil {
+			service.requests.logRequestProgress(requestID, attempt.accountLabel, "WARN", "尝试清理失败", "error", err)
+		}
+	}()
+}
+
+// supersede 记为被取代而非失败，取消后在后台等上游与文件清理结束
 func (service *trackedService) supersede(requestCtx context.Context, requestID string, loser *generateAttempt, reason string) {
-	loser.cancel()
 	api.AddAccessLogAttempt(requestCtx, api.RequestAttempt{
 		Account: loser.accountLabel, Channel: string(loser.lease.Channel()), Error: reason,
 		DurationMS: time.Since(loser.startedAt).Milliseconds(), Hedge: loser.hedge, Superseded: true,
 	})
-	go func() {
-		<-loser.done
-		if loser.source != nil {
-			for range loser.source {
-			}
-		}
-		if loser.copies != nil {
-			if err := loser.copies.Cleanup(); err != nil {
-				service.requests.log(loser.accountLabel, "WARN", "临时文件清理失败", "error", err)
-			}
-		}
-		if err := loser.lease.Release(); err != nil {
-			service.requests.logRequestProgress(requestID, loser.accountLabel, "WARN", "账户租约释放失败", "error", err)
-		}
-	}()
+	service.discardAttempt(requestCtx, requestID, loser)
 }
 
 // seedFirstEvents 从请求账本读取 firstEventSampleAge 内的全部记录补入首事件样本

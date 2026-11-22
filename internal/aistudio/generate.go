@@ -793,6 +793,9 @@ func (c *Client) Generate(ctx context.Context, request GenerateRequest) (<-chan 
 	if err != nil {
 		return nil, err
 	}
+	if streamingOnly, _ := ctx.Value(streamingOnlyContextKey{}).(bool); streamingOnly && !generateFirstEventStreaming(request, entry, lease.Channel()) {
+		return nil, ErrFirstEventNonstreaming
+	}
 	apiKey, _ := ctx.Value(apiKeyContextKey{}).(string)
 	assistant := entry.model.Capabilities["assistant_route"]
 	restoring := request.restoreModelTurns && !build && !assistant && !entry.defaults.InteractionStream && !entry.defaults.InteractionTask

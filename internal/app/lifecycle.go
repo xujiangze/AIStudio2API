@@ -24,6 +24,7 @@ type managedService interface {
 	ApplyCapacity(warmTarget int, maxActive int, startupConcurrency int, perAccountConcurrency int)
 	SetAPIKeyAccounts(map[string][]string)
 	SetRequestPolicy(mapping []config.ModelAlias, maxAccountSwitches int)
+	SetFirstEventPolicy(config.Config)
 }
 
 // generationAdmin 表示进程级管理器转交给当前生成服务的管理操作
@@ -51,7 +52,7 @@ type generationAdmin interface {
 	UpdateRuntimeConfig(context.Context, api.RuntimeConfig) (api.RuntimeConfig, error)
 	ApplyAccountSelection(config.Config)
 	Cooldowns(context.Context) ([]api.AdminCooldown, error)
-	ClearCooldown(ctx context.Context, accountID string, scope string) error
+	ClearCooldown(ctx context.Context, accountID string, scope string, kind aistudio.ShortCooldownKind) error
 	Requests(context.Context) ([]api.AdminRequest, error)
 	CancelRequest(context.Context, string) error
 	RecordAccessStart(api.AccessLog)
@@ -258,6 +259,7 @@ func (manager *runtimeManager) startService(ctx context.Context) (api.AdminStatu
 	next.service.ApplyCapacity(saved.WarmWorkerLimit, saved.MaxActiveWorkers, saved.WarmStartupConcurrency, saved.PerAccountConcurrency)
 	mapping, _ := config.ParseModelMapping(saved.ModelMapping)
 	next.service.SetRequestPolicy(mapping, saved.MaxAccountSwitches)
+	next.service.SetFirstEventPolicy(saved)
 	manager.settings.Store(requestSettingsOf(saved))
 	manager.mu.Lock()
 	current = manager.current
@@ -751,6 +753,14 @@ func (manager *runtimeManager) UpdateRuntimeConfig(ctx context.Context, value ap
 	)
 	mapping, _ := config.ParseModelMapping(updated.ModelMapping)
 	current.service.SetRequestPolicy(mapping, updated.MaxAccountSwitches)
+	current.service.SetFirstEventPolicy(config.Config{
+		FirstEventHedge:               updated.FirstEventHedge,
+		FirstEventHedgeModels:         updated.FirstEventHedgeModels,
+		FirstEventHedgeMaxConcurrency: updated.FirstEventHedgeMaxConcurrency,
+		FirstEventTimeoutSeconds:      updated.FirstEventTimeoutSeconds,
+		FirstEventRaceCooldownSeconds: updated.FirstEventRaceCooldownSeconds,
+		ModelBusyCooldownSeconds:      updated.ModelBusyCooldownSeconds,
+	})
 	manager.settings.Store(&requestSettings{
 		modes:              api.ResponseModes{NonstreamKeepalive: updated.NonstreamKeepalive, FakeStream: updated.FakeStream},
 		searchModelAliases: updated.SearchModelAliases, googleSearch: updated.GoogleSearch,
@@ -769,11 +779,11 @@ func (manager *runtimeManager) Cooldowns(ctx context.Context) ([]api.AdminCooldo
 	return current.admin.Cooldowns(ctx)
 }
 
-// ClearCooldown 手动清除账户在一个作用域上的冷却
-func (manager *runtimeManager) ClearCooldown(ctx context.Context, accountID string, scope string) error {
+// ClearCooldown 手动清除账户在一个作用域上的指定类型冷却，空类型只清旧记录
+func (manager *runtimeManager) ClearCooldown(ctx context.Context, accountID string, scope string, kind aistudio.ShortCooldownKind) error {
 	current, done := manager.generation()
 	defer done()
-	return current.admin.ClearCooldown(ctx, accountID, scope)
+	return current.admin.ClearCooldown(ctx, accountID, scope, kind)
 }
 
 // Requests 返回进程级活动请求
@@ -835,15 +845,13 @@ func sameDataConfig(value api.RuntimeConfig, active config.Config, overrides dat
 	saved := config.Config{
 		AuthStates: value.AuthStates, Proxy: value.Proxy,
 		InitTimeout: initTimeout, RequestTimeout: requestTimeout, StripThoughtSignatures: value.StripThoughtSignatures,
-		UpstreamChannels:      value.UpstreamChannels,
-		WAABackend:            value.WAABackend,
-		BuildNativeNonstream:  value.BuildNativeNonstream,
-		YouTubeLinks:          value.YouTubeLinks,
-		DiscoverHiddenModels:  value.DiscoverHiddenModels,
-		FirstEventHedge:       value.FirstEventHedge,
-		FirstEventHedgeModels: value.FirstEventHedgeModels,
-		ContinuationRewrite:   value.ContinuationRewrite,
-		ContinuationPrompt:    value.ContinuationPrompt,
+		UpstreamChannels:     value.UpstreamChannels,
+		WAABackend:           value.WAABackend,
+		BuildNativeNonstream: value.BuildNativeNonstream,
+		YouTubeLinks:         value.YouTubeLinks,
+		DiscoverHiddenModels: value.DiscoverHiddenModels,
+		ContinuationRewrite:  value.ContinuationRewrite,
+		ContinuationPrompt:   value.ContinuationPrompt,
 	}
 	overrides.Apply(&saved)
 	return saved.AuthStates == active.AuthStates && saved.Proxy == active.Proxy &&
@@ -851,7 +859,7 @@ func sameDataConfig(value api.RuntimeConfig, active config.Config, overrides dat
 		slices.Equal(saved.UpstreamChannels, active.UpstreamChannels) &&
 		saved.WAABackend == active.WAABackend &&
 		saved.BuildNativeNonstream == active.BuildNativeNonstream &&
-		saved.YouTubeLinks == active.YouTubeLinks && saved.StripThoughtSignatures == active.StripThoughtSignatures && saved.FirstEventHedge == active.FirstEventHedge && saved.FirstEventHedgeModels == active.FirstEventHedgeModels &&
+		saved.YouTubeLinks == active.YouTubeLinks && saved.StripThoughtSignatures == active.StripThoughtSignatures &&
 		saved.DiscoverHiddenModels == active.DiscoverHiddenModels &&
 		saved.ContinuationRewrite == active.ContinuationRewrite && saved.ContinuationPrompt == active.ContinuationPrompt
 }

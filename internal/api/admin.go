@@ -35,7 +35,7 @@ type AdminService interface {
 	RuntimeConfig(context.Context) (RuntimeConfig, error)
 	UpdateRuntimeConfig(context.Context, RuntimeConfig) (RuntimeConfig, error)
 	Cooldowns(context.Context) ([]AdminCooldown, error)
-	ClearCooldown(ctx context.Context, accountID string, scope string) error
+	ClearCooldown(ctx context.Context, accountID string, scope string, kind aistudio.ShortCooldownKind) error
 	Requests(context.Context) ([]AdminRequest, error)
 	CancelRequest(context.Context, string) error
 	Events(context.Context) (<-chan AdminEvent, error)
@@ -306,73 +306,78 @@ type ChromeImportInput struct {
 
 // RuntimeConfig 表示全局运行配置
 type RuntimeConfig struct {
-	AutoStart                 bool                 `json:"auto_start"`
-	HideDockIcon              bool                 `json:"hide_dock_icon"`
-	RequestBodyLog            bool                 `json:"request_body_log"`
-	ErrorMaskEnabled          bool                 `json:"error_mask_enabled"`
-	ErrorMaskServerMessage    string               `json:"error_mask_server_message"`
-	AdminAuthEnabled          bool                 `json:"admin_auth_enabled"`
-	AdminUsername             string               `json:"admin_username"`
-	AdminPassword             *string              `json:"admin_password,omitempty"`
-	AdminPasswordSet          bool                 `json:"admin_password_set"`
-	SavedAdminPassword        string               `json:"-"`
-	BuildNativeNonstream      bool                 `json:"build_native_nonstream"`
-	NonstreamKeepalive        bool                 `json:"nonstream_keepalive"`
-	FakeStream                bool                 `json:"fake_stream"`
-	YouTubeLinks              bool                 `json:"youtube_links"`
-	StripThoughtSignatures    bool                 `json:"strip_thought_signatures"`
-	SearchModelAliases        bool                 `json:"search_model_aliases"`
-	DiscoverHiddenModels      bool                 `json:"discover_hidden_models"`
-	GoogleSearch              bool                 `json:"google_search"`
-	FirstEventHedge           string               `json:"first_event_hedge"`
-	FirstEventHedgeModels     string               `json:"first_event_hedge_models"`
-	ContinuationRewrite       bool                 `json:"continuation_rewrite"`
-	ContinuationPrompt        string               `json:"continuation_prompt"`
-	LogFile                   bool                 `json:"log_file"`
-	LogMaxTotalMB             int                  `json:"log_max_total_mb"`
-	AuthStates                string               `json:"auth_states"`
-	ListenAddr                string               `json:"listen_addr"`
-	APIKey                    string               `json:"proxy_api_key"`
-	ActiveListenAddr          string               `json:"active_listen_addr"`
-	ReservedListenAddr        string               `json:"reserved_listen_addr"`
-	PreviewListenAddr         string               `json:"preview_listen_addr"`
-	ActivePreviewListenAddr   string               `json:"active_preview_listen_addr"`
-	ActiveAPIKey              string               `json:"active_proxy_api_key"`
-	ManagementRestartRequired bool                 `json:"management_restart_required"`
-	ServiceRestartRequired    bool                 `json:"service_restart_required"`
-	Proxy                     string               `json:"proxy"`
-	ActiveProxy               string               `json:"active_proxy"`
-	ProxyPool                 []AdminProxy         `json:"proxy_pool"`
-	InitTimeout               string               `json:"init_timeout"`
-	RequestTimeout            string               `json:"request_timeout"`
-	WarmWorkerLimit           int                  `json:"warm_worker_limit"`
-	MaxActiveWorkers          int                  `json:"max_active_workers"`
-	WarmStartupConcurrency    int                  `json:"warm_startup_concurrency"`
-	PerAccountConcurrency     int                  `json:"per_account_concurrency"`
-	RoutingStrategy           string               `json:"routing_strategy"`
-	AccountOrder              string               `json:"account_order"`
-	MaxAccountSwitches        int                  `json:"max_account_switches"`
-	UpstreamChannels          []string             `json:"upstream_channels"`
-	ModelMapping              string               `json:"model_mapping"`
-	ModelChannels             string               `json:"model_channels"`
-	ModelAccounts             string               `json:"model_accounts"`
-	APIKeyAccounts            string               `json:"api_key_accounts"`
-	WAABackend                string               `json:"waa_backend"`
-	MediaOutput               string               `json:"media_output"`
-	MediaBaseURL              string               `json:"media_base_url"`
-	Environment               []string             `json:"environment"`
-	Invalid                   []InvalidConfigValue `json:"invalid"`
+	AutoStart                     bool                 `json:"auto_start"`
+	HideDockIcon                  bool                 `json:"hide_dock_icon"`
+	RequestBodyLog                bool                 `json:"request_body_log"`
+	ErrorMaskEnabled              bool                 `json:"error_mask_enabled"`
+	ErrorMaskServerMessage        string               `json:"error_mask_server_message"`
+	AdminAuthEnabled              bool                 `json:"admin_auth_enabled"`
+	AdminUsername                 string               `json:"admin_username"`
+	AdminPassword                 *string              `json:"admin_password,omitempty"`
+	AdminPasswordSet              bool                 `json:"admin_password_set"`
+	SavedAdminPassword            string               `json:"-"`
+	BuildNativeNonstream          bool                 `json:"build_native_nonstream"`
+	NonstreamKeepalive            bool                 `json:"nonstream_keepalive"`
+	FakeStream                    bool                 `json:"fake_stream"`
+	YouTubeLinks                  bool                 `json:"youtube_links"`
+	StripThoughtSignatures        bool                 `json:"strip_thought_signatures"`
+	SearchModelAliases            bool                 `json:"search_model_aliases"`
+	DiscoverHiddenModels          bool                 `json:"discover_hidden_models"`
+	GoogleSearch                  bool                 `json:"google_search"`
+	FirstEventHedge               string               `json:"first_event_hedge"`
+	FirstEventHedgeModels         string               `json:"first_event_hedge_models"`
+	FirstEventHedgeMaxConcurrency int                  `json:"first_event_hedge_max_concurrency"`
+	FirstEventTimeoutSeconds      int                  `json:"first_event_timeout_seconds"`
+	FirstEventRaceCooldownSeconds int                  `json:"first_event_race_cooldown_seconds"`
+	ModelBusyCooldownSeconds      int                  `json:"model_busy_cooldown_seconds"`
+	ContinuationRewrite           bool                 `json:"continuation_rewrite"`
+	ContinuationPrompt            string               `json:"continuation_prompt"`
+	LogFile                       bool                 `json:"log_file"`
+	LogMaxTotalMB                 int                  `json:"log_max_total_mb"`
+	AuthStates                    string               `json:"auth_states"`
+	ListenAddr                    string               `json:"listen_addr"`
+	APIKey                        string               `json:"proxy_api_key"`
+	ActiveListenAddr              string               `json:"active_listen_addr"`
+	ReservedListenAddr            string               `json:"reserved_listen_addr"`
+	PreviewListenAddr             string               `json:"preview_listen_addr"`
+	ActivePreviewListenAddr       string               `json:"active_preview_listen_addr"`
+	ActiveAPIKey                  string               `json:"active_proxy_api_key"`
+	ManagementRestartRequired     bool                 `json:"management_restart_required"`
+	ServiceRestartRequired        bool                 `json:"service_restart_required"`
+	Proxy                         string               `json:"proxy"`
+	ActiveProxy                   string               `json:"active_proxy"`
+	ProxyPool                     []AdminProxy         `json:"proxy_pool"`
+	InitTimeout                   string               `json:"init_timeout"`
+	RequestTimeout                string               `json:"request_timeout"`
+	WarmWorkerLimit               int                  `json:"warm_worker_limit"`
+	MaxActiveWorkers              int                  `json:"max_active_workers"`
+	WarmStartupConcurrency        int                  `json:"warm_startup_concurrency"`
+	PerAccountConcurrency         int                  `json:"per_account_concurrency"`
+	RoutingStrategy               string               `json:"routing_strategy"`
+	AccountOrder                  string               `json:"account_order"`
+	MaxAccountSwitches            int                  `json:"max_account_switches"`
+	UpstreamChannels              []string             `json:"upstream_channels"`
+	ModelMapping                  string               `json:"model_mapping"`
+	ModelChannels                 string               `json:"model_channels"`
+	ModelAccounts                 string               `json:"model_accounts"`
+	APIKeyAccounts                string               `json:"api_key_accounts"`
+	WAABackend                    string               `json:"waa_backend"`
+	MediaOutput                   string               `json:"media_output"`
+	MediaBaseURL                  string               `json:"media_base_url"`
+	Environment                   []string             `json:"environment"`
+	Invalid                       []InvalidConfigValue `json:"invalid"`
 }
 
 // AdminCooldown 表示账户模型冷却
 type AdminCooldown struct {
-	AccountID    string    `json:"account_id"`
-	AccountLabel string    `json:"account_label"`
-	Channel      string    `json:"channel"`
-	ModelID      string    `json:"model_id"`
-	Scope        string    `json:"scope"`
-	Until        time.Time `json:"until"`
-	Reason       string    `json:"reason,omitempty"`
+	AccountID    string                     `json:"account_id"`
+	AccountLabel string                     `json:"account_label"`
+	Channel      string                     `json:"channel"`
+	ModelID      string                     `json:"model_id"`
+	Scope        string                     `json:"scope"`
+	Kind         aistudio.ShortCooldownKind `json:"kind,omitempty"`
+	Until        time.Time                  `json:"until"`
+	Reason       string                     `json:"reason,omitempty"`
 }
 
 // AdminRequest 表示活动请求摘要
@@ -626,7 +631,12 @@ func (s *server) handleCooldowns(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handleClearCooldown(w http.ResponseWriter, r *http.Request) {
-	if err := s.config.Admin.ClearCooldown(r.Context(), r.PathValue("id"), r.PathValue("scope")); err != nil {
+	kind := aistudio.ShortCooldownKind(r.URL.Query().Get("kind"))
+	if kind != "" && kind != aistudio.ShortCooldownRace && kind != aistudio.ShortCooldownBusy {
+		writeAdminError(w, http.StatusBadRequest, "invalid_request", "无效的短冷却类型: "+string(kind))
+		return
+	}
+	if err := s.config.Admin.ClearCooldown(r.Context(), r.PathValue("id"), r.PathValue("scope"), kind); err != nil {
 		writeAdminUpstreamError(w, err)
 		return
 	}

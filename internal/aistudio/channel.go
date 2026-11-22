@@ -260,7 +260,7 @@ func (p *AccountPool) preferredChannelOpenLocked(account *Account, selection Acc
 		!p.channelSupportsLocked(account, preferred, selection) {
 		return false
 	}
-	_, cooling := selectionCooldown(account, ChannelCooldownScope(preferred, selectionAccessScope(selection)), selection, now)
+	_, cooling := channelSelectionCooldown(account, preferred, selection, now, time.Time{})
 	return !cooling
 }
 
@@ -301,13 +301,12 @@ func (p *AccountPool) accountSupportsAnyChannelLocked(account *Account, selectio
 
 // accountChannelCooldownLocked 返回账户全部支持通道都冷却时最早恢复的冷却
 func (p *AccountPool) accountChannelCooldownLocked(account *Account, selection AccountSelection, now time.Time) (CooldownState, bool) {
-	scope := selectionAccessScope(selection)
 	var earliest CooldownState
 	for _, channel := range p.selectionChannelsLocked(selection) {
 		if !p.channelSupportsLocked(account, channel, selection) {
 			continue
 		}
-		cooldown, active := selectionCooldown(account, ChannelCooldownScope(channel, scope), selection, now)
+		cooldown, active := channelSelectionCooldown(account, channel, selection, now, time.Time{})
 		if !active {
 			return CooldownState{}, false
 		}

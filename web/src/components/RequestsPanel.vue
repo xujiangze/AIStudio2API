@@ -58,16 +58,26 @@ function splitReason(reason: string | undefined): { category: string; text: stri
   return { category: value.slice(0, separator), text: value.slice(separator + 2) }
 }
 
-// categoryLabel 返回冷却类型的当前语言名称，没有类型时为其他
+// cooldownCategory 以 kind 区分短冷却，旧冷却继续按已有原因前缀分类。
+function cooldownCategory(cooldown: Cooldown): string {
+  return cooldown.kind === undefined
+    ? `legacy:${splitReason(cooldown.reason).category}`
+    : `kind:${cooldown.kind}`
+}
+
+// categoryLabel 返回冷却类型的当前语言名称，没有旧类型时为其他。
 function categoryLabel(category: string): string {
-  return category ? logText(category) : t('cooldowns.other')
+  if (category === 'kind:race') return t('cooldowns.race')
+  if (category === 'kind:busy') return t('cooldowns.busy')
+  const legacy = category.slice('legacy:'.length)
+  return legacy ? logText(legacy) : t('cooldowns.other')
 }
 
 // categories 是全部与各冷却类型的数量，类型按数量从多到少排列
 const categories = computed(() => {
   const counts = new Map<string, number>()
   for (const cooldown of modelCooldowns.value) {
-    const category = splitReason(cooldown.reason).category
+    const category = cooldownCategory(cooldown)
     counts.set(category, (counts.get(category) ?? 0) + 1)
   }
   return [...counts.entries()].sort((left, right) => right[1] - left[1])
@@ -86,8 +96,7 @@ const visibleCooldowns = computed(() =>
   modelCooldowns.value
     .filter(
       (cooldown) =>
-        activeCategory.value === '' ||
-        splitReason(cooldown.reason).category === activeCategory.value,
+        activeCategory.value === '' || cooldownCategory(cooldown) === activeCategory.value,
     )
     .sort((left, right) => Date.parse(left.until) - Date.parse(right.until)),
 )
@@ -203,7 +212,7 @@ async function cancelRequest(request: RequestSummary): Promise<void> {
 async function clearCooldown(cooldown: Cooldown): Promise<void> {
   clearing.value = true
   try {
-    await api.clearCooldown(cooldown.account_id, cooldown.scope)
+    await api.clearCooldown(cooldown.account_id, cooldown.scope, cooldown.kind)
     detail.value = null
     emit('notice', t('cooldowns.cleared'), 'success')
     emit('refresh')
@@ -295,7 +304,7 @@ async function clearCooldown(cooldown: Cooldown): Promise<void> {
         >
           <button
             v-for="cooldown in pagedCooldowns"
-            :key="`${cooldown.account_id}:${cooldown.channel}:${cooldown.model_id}`"
+            :key="`${cooldown.account_id}:${cooldown.channel}:${cooldown.model_id}:${cooldown.scope}:${cooldown.kind ?? 'legacy'}`"
             type="button"
             class="flex w-full items-center gap-3 border-b border-line/60 px-4 py-2 text-left transition hover:bg-raised"
             @click="detail = cooldown"
@@ -317,7 +326,7 @@ async function clearCooldown(cooldown: Cooldown): Promise<void> {
             </div>
             <div class="flex shrink-0 flex-col items-end gap-1">
               <span class="rounded bg-yellow-500/10 px-2 py-0.5 text-xs text-yellow-300">{{
-                categoryLabel(splitReason(cooldown.reason).category)
+                categoryLabel(cooldownCategory(cooldown))
               }}</span>
               <time class="font-mono text-xs whitespace-nowrap text-gray-400">{{
                 formatTime(cooldown.until)
@@ -429,7 +438,7 @@ async function clearCooldown(cooldown: Cooldown): Promise<void> {
       <template v-if="detail">
         <dl class="mb-4 grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 text-xs">
           <dt class="text-gray-500">{{ t('cooldowns.category') }}</dt>
-          <dd class="text-yellow-300">{{ categoryLabel(splitReason(detail.reason).category) }}</dd>
+          <dd class="text-yellow-300">{{ categoryLabel(cooldownCategory(detail)) }}</dd>
           <dt class="text-gray-500">{{ t('cooldowns.until') }}</dt>
           <dd class="font-mono text-gray-200">{{ formatTime(detail.until) }}</dd>
         </dl>
@@ -437,9 +446,17 @@ async function clearCooldown(cooldown: Cooldown): Promise<void> {
           class="rounded-md border border-line bg-canvas p-3 font-mono text-xs leading-5 whitespace-pre-wrap [overflow-wrap:anywhere] text-gray-300"
           >{{ logText(splitReason(detail.reason).text) || '—' }}</pre>
         <div class="mt-4 flex items-center justify-end gap-3">
-          <span v-if="detail.scope === '*'" class="text-xs text-gray-500">{{
-            t('cooldowns.clearAccountHint')
-          }}</span>
+          <span
+            v-if="detail.kind !== undefined || detail.scope === '*'"
+            class="text-xs text-gray-500"
+            >{{
+              t(
+                detail.kind === undefined
+                  ? 'cooldowns.clearAccountHint'
+                  : 'cooldowns.clearShortHint',
+              )
+            }}</span
+          >
           <button
             type="button"
             class="shrink-0 rounded border border-line bg-raised px-3 py-1.5 text-sm text-gray-200 transition hover:bg-line disabled:opacity-50"

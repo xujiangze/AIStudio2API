@@ -26,6 +26,7 @@ import type {
   RequestSummary,
   ServiceConfig,
   ServiceStatus,
+  ShortCooldownKind,
   UpdateStatus,
   UsagePair,
   UsageRecordPage,
@@ -232,9 +233,9 @@ export const api = {
       method: 'PUT',
       body: jsonBody(config),
     }),
-  clearCooldown: (accountID: string, scope: string) =>
+  clearCooldown: (accountID: string, scope: string, kind?: ShortCooldownKind) =>
     requestCommand(
-      `/api/accounts/${encodeURIComponent(accountID)}/cooldowns/${encodeURIComponent(scope)}`,
+      `/api/accounts/${encodeURIComponent(accountID)}/cooldowns/${encodeURIComponent(scope)}${kind === undefined ? '' : `?${new URLSearchParams({ kind })}`}`,
       { method: 'DELETE' },
     ),
   cancelRequest: (id: string) =>

@@ -92,6 +92,55 @@ func TestEnvironmentKeepsSavedFile(t *testing.T) {
 	}
 }
 
+// TestFirstEventEnvironmentLocks 验证首字策略各环境变量覆盖文件，保存保留文件中的旧值。
+func TestFirstEventEnvironmentLocks(t *testing.T) {
+	values := map[string]string{
+		"FIRST_EVENT_HEDGE":                 "off",
+		"FIRST_EVENT_HEDGE_MODELS":          "",
+		"FIRST_EVENT_HEDGE_MAX_CONCURRENCY": "4",
+		"FIRST_EVENT_TIMEOUT_SECONDS":       "0",
+		"FIRST_EVENT_RACE_COOLDOWN_SECONDS": "0",
+		"MODEL_BUSY_COOLDOWN_SECONDS":       "0",
+	}
+	file := "# explicit previous settings\nFIRST_EVENT_HEDGE=auto\nFIRST_EVENT_HEDGE_MODELS=gemini-4-argon\nFIRST_EVENT_HEDGE_MAX_CONCURRENCY=8\nFIRST_EVENT_TIMEOUT_SECONDS=90\nFIRST_EVENT_RACE_COOLDOWN_SECONDS=40\nMODEL_BUSY_COOLDOWN_SECONDS=20\nWAA_BACKEND=spidermonkey\n"
+	for key, value := range values {
+		t.Setenv(key, value)
+	}
+	path := writeTestEnv(t, file)
+	saved, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	kept := Default().KeepEnvironment(saved)
+	for key, want := range values {
+		if !slices.Contains(kept.Environment, key) || kept.envValues()[key] != want {
+			t.Fatalf("环境变量 %s 未保留: %+v", key, kept)
+		}
+	}
+	if err := kept.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range strings.Split(strings.TrimSpace(file), "\n")[1:] {
+		if !strings.Contains(readTestEnv(t, path), line+"\n") {
+			t.Fatalf("保存丢失文件取值 %q", line)
+		}
+	}
+}
+
+// TestFirstEventLegacyMigration 验证旧的无注释全量配置升级保留显式 off 与空模型列表。
+func TestFirstEventLegacyMigration(t *testing.T) {
+	for _, models := range []string{"", "gemini-4-argon"} {
+		path := writeTestEnv(t, "AISTUDIO_AUTH_STATES=auth\nLISTEN_ADDR=127.0.0.1:2048\nPROXY_API_KEY=\nPROXY=\nINIT_TIMEOUT=2m\nREQUEST_TIMEOUT=5m\nWARM_WORKER_LIMIT=10\nMAX_ACTIVE_WORKERS=20\nWARM_STARTUP_CONCURRENCY=5\nPER_ACCOUNT_CONCURRENCY=2\nROUTING_STRATEGY=round-robin\nUPSTREAM_CHANNELS=playground,build\nWAA_BACKEND=spidermonkey\nFIRST_EVENT_HEDGE=off\nFIRST_EVENT_HEDGE_MODELS="+models+"\n")
+		cfg, err := Load(path)
+		if err != nil || cfg.FirstEventHedge != "off" || cfg.FirstEventHedgeModels != models {
+			t.Fatalf("旧配置未保留: %+v err=%v", cfg, err)
+		}
+		if got := readTestEnv(t, path); !strings.Contains(got, "FIRST_EVENT_HEDGE=off\n") || !strings.Contains(got, "FIRST_EVENT_HEDGE_MODELS="+models+"\n") {
+			t.Fatalf("迁移改写显式设置: %q", got)
+		}
+	}
+}
+
 // TestAPIKeyAccounts 核对 API_KEY_ACCOUNTS 按最后一个冒号分出 key 与以竖线分隔的账户，跳过不在 PROXY_API_KEY 中的 key 而保留其余绑定，取值无效时按默认值加载且原因不含 key
 func TestAPIKeyAccounts(t *testing.T) {
 	accounts, err := ParseAPIKeyAccounts(" sk-a : a@example.com | b@example.com , sk:b:c@example.com", "sk-a, sk:b")

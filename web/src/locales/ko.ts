@@ -1986,20 +1986,40 @@ export const messages: Record<TranslationKey, string> = {
   'settings.unitSeconds': '초',
   'settings.unitMinutes': '분',
   'settings.timeUnit': '시간 단위',
-  'settings.firstEventHedge': '첫 토큰 지연 시 예비 요청',
+  'settings.firstEventHedge': '첫 이벤트 경쟁',
   'settings.firstEventHedgeHelp':
-    '첫 토큰이 늦으면 유휴 계정으로 한 번 더 보내고, 먼저 응답한 쪽을 계속하며 다른 쪽은 취소합니다',
+    '원래 시도가 계정을 얻을 때부터 측정합니다. 임계 시간까지 첫 이벤트가 없으면 준비되어 있고 빈 슬롯이 있는 다른 계정에 예비 요청을 보내며, 이벤트를 먼저 받은 쪽을 계속합니다. 첫 이벤트는 생각 요약을 포함한 첫 비오류 업스트림 이벤트로, 보이는 본문과는 다를 수 있습니다. 예비 요청도 할당량을 소비합니다.',
+  'settings.firstEventPolicyHint':
+    '경쟁, 첫 이벤트 총 대기 한도, 혼잡 쿨다운은 독립적입니다. 저장한 값은 새 요청에 적용되며 진행 중인 요청은 원래 정책을 유지합니다. 쿨다운을 변경하거나 꺼도 기존 기록은 지워지지 않습니다.',
   'settings.firstEventHedgeOff': '끄기',
   'settings.firstEventHedgeAuto': '자동(최근 p95)',
   'settings.firstEventHedgeCustom': '사용자 지정',
   'settings.firstEventHedgeSeconds': '대기 시간(초)',
   'settings.firstEventHedgeUnit': '초',
   'settings.firstEventHedgeAutoHint':
-    '모델과 채널마다 최근 24시간 첫 토큰 p95만큼 기다리며, 요청이 20건 미만이면 보내지 않습니다',
-  'settings.firstEventHedgeCustomHint': '참고: {model}의 최근 24시간 첫 토큰 p95는 {seconds}초',
-  'settings.firstEventHedgeModels': '예비 요청을 보낼 모델',
+    '모델과 채널마다 최근 24시간 첫 이벤트 p95를 사용하며, 요청이 20건 미만이면 예비 요청을 보내지 않습니다',
+  'settings.firstEventHedgeCustomHint': '참고: {model}의 최근 24시간 첫 이벤트 p95는 {seconds}초',
+  'settings.firstEventHedgeModels': '경쟁 대상 모델',
+  'settings.hedgeModelsAll': '조건에 맞는 모든 모델',
   'settings.firstEventHedgeModelsHelp':
-    '예비 요청은 취소되어도 요청 한 번의 할당량을 씁니다. 토큰제는 Ultra 계정의 gemini-4-argon뿐이며 다른 모델은 횟수제라 권장하지 않습니다',
+    '모든 모델은 *로 저장합니다. 지정 목록이 비어 있으면 경쟁하지 않습니다. 업스트림 이벤트를 점진적으로 받는 비스트리밍 요청을 포함한 일반 전경 생성만 대상입니다. 백그라운드 작업, Deep Research, 어시스턴트 경로, Build 기본 비스트리밍 및 독립 이미지/동영상 API는 제외됩니다. 이 선택은 경쟁만 제한하며 독립적인 첫 이벤트 기한은 제한하지 않습니다.',
+  'settings.firstEventHedgeMaxConcurrency': '전역 예비 요청 동시 실행 한도',
+  'settings.firstEventHedgeMaxConcurrencyHelp':
+    '모든 요청에서 공유하는 활성 예비 요청 한도입니다. 양의 정수여야 하며 계정별 한도도 지킵니다. 낮춰도 실행 중인 예비 요청은 취소하지 않습니다.',
+  'settings.firstEventTimeout': '첫 이벤트 총 대기 한도',
+  'settings.firstEventTimeoutHelp':
+    '첫 계정 임대를 얻을 때 시작하며 준비, 계정 변경, 재대기, 예비 요청으로 초기화되지 않습니다. 기한까지 비오류 이벤트가 없으면 모든 시도를 취소합니다. 첫 계정을 얻기 전 대기는 제외됩니다. 경쟁 및 모델 선택과 독립적이며 대상 범위는 경쟁과 같습니다. 0은 끄기이며 첫 이벤트 이후의 정지는 제한하지 않습니다.',
+  'settings.firstEventRaceCooldown': '경쟁 쿨다운',
+  'settings.firstEventRaceCooldownHelp':
+    '다른 계정의 예비 요청이 첫 이벤트를 먼저 받아 아직 기다리던 원래 시도를 대체한 경우에만 원래 계정·채널·모델을 쿨다운합니다. 0은 끄기입니다. 경쟁을 끄면 새 경쟁 쿨다운은 생기지 않지만 기존 기록은 유지됩니다.',
+  'settings.modelBusyCooldown': '혼잡 쿨다운',
+  'settings.modelBusyCooldownHelp':
+    '모델 혼잡형 HTTP 503 또는 프로토콜 코드 14가 발생하면 해당 계정·채널·모델을 쿨다운하고 계정 변경 재시도는 유지합니다. 다른 네트워크 오류와 일반 5xx는 제외됩니다. 경쟁과 독립적이며 0은 끄기입니다. 할당량 또는 권한 쿨다운을 덮어쓰지 않습니다.',
+  'settings.zeroDisables': '0이면 이 설정을 끕니다',
+  'cooldowns.race': '경쟁 쿨다운',
+  'cooldowns.busy': '혼잡 쿨다운',
+  'cooldowns.clearShortHint':
+    '이 계정·채널·모델의 이 짧은 쿨다운 유형만 지우며 다른 원인은 유지합니다',
   'settings.environmentLocked': '환경 변수 {key}(으)로 지정되어 여기서 변경할 수 없습니다',
   'settings.proxyHelp':
     'HTTP, HTTPS 또는 SOCKS5 프록시. 쉼표로 여러 개를 구분하면 프록시 풀이 되며, 비우면 시스템 프록시 사용',

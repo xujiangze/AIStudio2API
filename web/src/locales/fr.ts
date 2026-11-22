@@ -2054,21 +2054,41 @@ export const messages: Record<TranslationKey, string> = {
   'settings.unitSeconds': 'secondes',
   'settings.unitMinutes': 'minutes',
   'settings.timeUnit': 'Unité de temps',
-  'settings.firstEventHedge': 'Requête de secours si le premier jeton tarde',
+  'settings.firstEventHedge': 'Course au premier événement',
   'settings.firstEventHedgeHelp':
-    'Si une requête n’a pas de premier jeton après un délai, elle est renvoyée sur un compte libre ; la première à répondre continue, l’autre est annulée',
+    'Le délai commence à l’obtention du compte initial. Sans premier événement au seuil, une requête de secours part sur un autre compte prêt avec un créneau libre ; la première à recevoir un événement continue. Il s’agit du premier événement amont sans erreur, résumés de réflexion compris, pas forcément du texte visible. Le secours consomme aussi du quota.',
+  'settings.firstEventPolicyHint':
+    'La course, le délai total du premier événement et le refroidissement de surcharge sont indépendants. Les changements enregistrés concernent les nouvelles requêtes ; celles en cours gardent leur politique. Modifier ou désactiver un refroidissement ne supprime pas les enregistrements existants.',
   'settings.firstEventHedgeOff': 'Désactivé',
   'settings.firstEventHedgeAuto': 'Automatique (p95 récent)',
   'settings.firstEventHedgeCustom': 'Personnalisé',
   'settings.firstEventHedgeSeconds': 'Délai en secondes',
   'settings.firstEventHedgeUnit': 'secondes',
   'settings.firstEventHedgeAutoHint':
-    'Chaque modèle et canal attend son p95 du premier jeton sur les dernières 24 h ; pas de secours sous 20 requêtes',
+    'Chaque modèle et canal utilise son p95 du premier événement sur les dernières 24 h ; pas de secours sous 20 requêtes',
   'settings.firstEventHedgeCustomHint':
-    'Pour référence, p95 du premier jeton de {model} sur les dernières 24 h : {seconds} s',
-  'settings.firstEventHedgeModels': 'Modèles avec requête de secours',
+    'Pour référence, p95 du premier événement de {model} sur les dernières 24 h : {seconds} s',
+  'settings.firstEventHedgeModels': 'Modèles participant à la course',
+  'settings.hedgeModelsAll': 'Tous les modèles admissibles',
   'settings.firstEventHedgeModelsHelp':
-    'Une requête de secours compte pour une requête même annulée. Seul gemini-4-argon sur les comptes Ultra est limité en jetons ; les autres modèles sont limités en requêtes et déconseillés',
+    'Tous les modèles est enregistré sous la forme *. Une liste sélectionnée vide ne lance aucune course. Seule la génération ordinaire au premier plan est admissible, y compris les requêtes non diffusées recevant les événements amont progressivement. Tâches en arrière-plan, Deep Research, routes assistant, Build non diffusé natif et API autonomes image/vidéo sont exclus. Ce choix ne limite que la course, pas le délai indépendant du premier événement.',
+  'settings.firstEventHedgeMaxConcurrency': 'Limite globale des secours simultanés',
+  'settings.firstEventHedgeMaxConcurrencyHelp':
+    'Maximum de secours actifs pour toutes les requêtes ; entier strictement positif, toujours soumis aux limites de chaque compte. Une réduction n’annule pas les secours en cours.',
+  'settings.firstEventTimeout': 'Attente totale du premier événement',
+  'settings.firstEventTimeoutHelp':
+    'Commence à la première attribution de compte. Préparation, changements de compte, nouvelles attentes et secours ne le réinitialisent pas. Sans événement sans erreur à l’échéance, toutes les tentatives sont annulées. L’attente avant la première attribution est exclue. Indépendant de la course et du choix des modèles, avec le même périmètre admissible ; 0 le désactive. Ne limite pas les pauses après le premier événement.',
+  'settings.firstEventRaceCooldown': 'Refroidissement après course',
+  'settings.firstEventRaceCooldownHelp':
+    'Refroidit le compte initial uniquement si le secours sur un autre compte reçoit le premier événement et remplace la tentative initiale encore en attente. Limité au compte, canal et modèle. 0 le désactive ; désactiver la course empêche de nouveaux enregistrements mais conserve les anciens.',
+  'settings.modelBusyCooldown': 'Refroidissement de surcharge',
+  'settings.modelBusyCooldownHelp':
+    'Un HTTP 503 de modèle surchargé ou le code de protocole 14 refroidit le compte, canal et modèle, tout en conservant les nouvelles tentatives sur un autre compte. Les autres erreurs réseau et 5xx génériques sont exclues. Indépendant de la course ; 0 le désactive. Ne remplace pas les refroidissements de quota ou de permissions.',
+  'settings.zeroDisables': '0 désactive ce réglage',
+  'cooldowns.race': 'Refroidissement après course',
+  'cooldowns.busy': 'Refroidissement de surcharge',
+  'cooldowns.clearShortHint':
+    'Supprime uniquement ce type de refroidissement court pour ce compte, canal et modèle ; conserve les autres causes',
   'settings.environmentLocked': 'Défini par la variable d’environnement {key} ; non modifiable ici',
   'settings.proxyHelp':
     'Proxy HTTP, HTTPS ou SOCKS5. Plusieurs séparés par des virgules forment un pool ; vide utilise le proxy système',

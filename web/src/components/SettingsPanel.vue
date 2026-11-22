@@ -93,6 +93,10 @@ const sections: {
       'request_timeout',
       'first_event_hedge',
       'first_event_hedge_models',
+      'first_event_hedge_max_concurrency',
+      'first_event_timeout_seconds',
+      'first_event_race_cooldown_seconds',
+      'model_busy_cooldown_seconds',
     ],
   },
   {
@@ -243,11 +247,11 @@ const busiest = computed(() =>
     undefined,
   ),
 )
-// suggestedSeconds 是 busiest 的 p95 向上取整的秒数，没有样本时为 60
+// suggestedSeconds 是 busiest 的 p95 向上取整的秒数，没有样本时为默认的 20
 const suggestedSeconds = computed(() =>
-  busiest.value === undefined ? 60 : Math.max(1, Math.ceil(busiest.value.p95_ms / 1000)),
+  busiest.value === undefined ? 20 : Math.max(1, Math.ceil(busiest.value.p95_ms / 1000)),
 )
-// hedgeMode 是首字超时备用请求的方式，选自定义时填入建议的秒数
+// hedgeMode 是首字竞速的方式，选自定义时填入建议的秒数
 const hedgeMode = computed({
   get: () =>
     form.first_event_hedge === 'off' || form.first_event_hedge === 'auto'
@@ -330,19 +334,53 @@ const channelOptions = computed(() =>
   upstreamChannelOptions.map((channel) => ({ value: channel, label: t(channelLabelKey(channel)) })),
 )
 
-// hedgeModels 是表单中发起备用请求的模型
+// hedgeModels 是明确选择的模型；* 是全部模型标记，不把空列表解释成全选。
 const hedgeModels = computed(() =>
   (form.first_event_hedge_models ?? '')
     .split(',')
     .map((id) => id.trim())
-    .filter(Boolean),
+    .filter((id) => id !== '' && id !== '*'),
 )
+const hedgeModelScope = computed({
+  get: () =>
+    (form.first_event_hedge_models ?? '').split(',').some((id) => id.trim() === '*')
+      ? 'all'
+      : 'selected',
+  set: (scope: string) => {
+    form.first_event_hedge_models = scope === 'all' ? '*' : ''
+  },
+})
 
-// hedgeModelsLabel 是备用请求模型选择按钮的文字
+// hedgeModelsLabel 是指定模型选择按钮的文字。
 const hedgeModelsLabel = computed(() => {
   if (hedgeModels.value.length === 0) return t('settings.hedgeModelsNone')
   return hedgeModels.value.length === 1 ? hedgeModels.value[0]! : t('settings.hedgeModelsSome')
 })
+
+const firstEventSecondsItems: {
+  field:
+    | 'first_event_timeout_seconds'
+    | 'first_event_race_cooldown_seconds'
+    | 'model_busy_cooldown_seconds'
+  label: TranslationKey
+  help: TranslationKey
+}[] = [
+  {
+    field: 'first_event_timeout_seconds',
+    label: 'settings.firstEventTimeout',
+    help: 'settings.firstEventTimeoutHelp',
+  },
+  {
+    field: 'first_event_race_cooldown_seconds',
+    label: 'settings.firstEventRaceCooldown',
+    help: 'settings.firstEventRaceCooldownHelp',
+  },
+  {
+    field: 'model_busy_cooldown_seconds',
+    label: 'settings.modelBusyCooldown',
+    help: 'settings.modelBusyCooldownHelp',
+  },
+]
 
 watch(apiKeyList, () => {
   if (form.api_key_accounts !== undefined)
@@ -875,11 +913,14 @@ async function saveConfig(): Promise<void> {
                 :input-class="inputClass"
               />
             </SettingRow>
+            <p class="mt-4 text-xs leading-5 text-gray-400">
+              {{ t('settings.firstEventPolicyHint') }}
+            </p>
             <SettingRow
               :label="t('settings.firstEventHedge')"
               control-id="setting-first-event-hedge"
               :description="hedgeDescription"
-              effect="service"
+              effect="immediate"
               :changed="changedFields.has('first_event_hedge')"
               :env="environmentKey('first_event_hedge')"
             >
@@ -907,22 +948,79 @@ async function saveConfig(): Promise<void> {
               :label="t('settings.firstEventHedgeModels')"
               group-id="setting-first-event-hedge-models"
               :description="t('settings.firstEventHedgeModelsHelp')"
-              effect="service"
+              effect="immediate"
               :changed="changedFields.has('first_event_hedge_models')"
               :env="environmentKey('first_event_hedge_models')"
             >
-              <FilterMenu
-                field
+              <div
+                role="group"
+                aria-labelledby="setting-first-event-hedge-models-label"
+                class="space-y-2"
+              >
+                <UiSelect
+                  id="setting-first-event-hedge-model-scope"
+                  v-model="hedgeModelScope"
+                  :class="inputClass"
+                  :aria-label="t('settings.firstEventHedgeModels')"
+                >
+                  <option value="all">{{ t('settings.hedgeModelsAll') }}</option>
+                  <option value="selected">{{ t('settings.hedgeModelsSome') }}</option>
+                </UiSelect>
+                <FilterMenu
+                  v-if="hedgeModelScope === 'selected'"
+                  field
+                  :class="inputClass"
+                  :label="hedgeModelsLabel"
+                  :options="modelIDs"
+                  :selected="hedgeModels"
+                  :format="(id: string) => id"
+                  :search-label="t('settings.modelSearch')"
+                  :empty-label="t('settings.modelNone')"
+                  :clear-label="t('settings.selectionClear')"
+                  :disabled="environmentKey('first_event_hedge_models') !== undefined"
+                  @change="form.first_event_hedge_models = $event.join(',')"
+                />
+              </div>
+            </SettingRow>
+            <SettingRow
+              :label="t('settings.firstEventHedgeMaxConcurrency')"
+              control-id="setting-first-event-hedge-max-concurrency"
+              :description="t('settings.firstEventHedgeMaxConcurrencyHelp')"
+              effect="immediate"
+              :changed="changedFields.has('first_event_hedge_max_concurrency')"
+              :env="environmentKey('first_event_hedge_max_concurrency')"
+            >
+              <input
+                id="setting-first-event-hedge-max-concurrency"
+                v-model.number="form.first_event_hedge_max_concurrency"
                 :class="inputClass"
-                :label="hedgeModelsLabel"
-                :options="modelIDs"
-                :selected="hedgeModels"
-                :format="(id: string) => id"
-                :search-label="t('settings.modelSearch')"
-                :empty-label="t('settings.modelNone')"
-                :clear-label="t('settings.selectionClear')"
-                @change="form.first_event_hedge_models = $event.join(',')"
+                type="number"
+                min="1"
+                step="1"
               />
+            </SettingRow>
+            <SettingRow
+              v-for="item in firstEventSecondsItems"
+              :key="item.field"
+              :label="t(item.label)"
+              :control-id="`setting-${item.field}`"
+              :description="t(item.help)"
+              effect="immediate"
+              :changed="changedFields.has(item.field)"
+              :env="environmentKey(item.field)"
+            >
+              <div class="flex items-center gap-2">
+                <input
+                  :id="`setting-${item.field}`"
+                  v-model.number="form[item.field]"
+                  :class="inputClass"
+                  type="number"
+                  min="0"
+                  step="1"
+                />
+                <span class="shrink-0 text-sm text-gray-400">{{ t('settings.unitSeconds') }}</span>
+              </div>
+              <p class="mt-1 text-xs text-gray-500">{{ t('settings.zeroDisables') }}</p>
             </SettingRow>
           </template>
 

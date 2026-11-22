@@ -1902,9 +1902,11 @@ export const messages = {
   'settings.unitSeconds': '秒',
   'settings.unitMinutes': '分钟',
   'settings.timeUnit': '时间单位',
-  'settings.firstEventHedge': '首字超时备用请求',
+  'settings.firstEventHedge': '首字竞速',
   'settings.firstEventHedgeHelp':
-    '原请求迟迟没有首字时，用空闲账户再发一次，先出首字的一方继续，另一方取消',
+    '原请求从取得账户开始计时，超过阈值仍无首字时，在另一个已就绪且有空槽的账户发起备用请求，先收到首字的一方继续。首字指首个非错误上游事件，思考摘要也算，不等同于可见正文。备用请求也消耗额度。',
+  'settings.firstEventPolicyHint':
+    '竞速、首字总等待上限与繁忙冷却独立控制。保存仅影响新请求，进行中的请求沿用原策略；修改或关闭冷却不会清除已有记录。',
   'settings.firstEventHedgeOff': '关闭',
   'settings.firstEventHedgeAuto': '自动（近期 p95）',
   'settings.firstEventHedgeCustom': '自定义',
@@ -1913,9 +1915,26 @@ export const messages = {
   'settings.firstEventHedgeAutoHint':
     '每个模型与通道取近 24 小时首字等待的 p95，请求少于 20 次时不发起',
   'settings.firstEventHedgeCustomHint': '参考：{model} 近 24 小时首字 p95 为 {seconds} 秒',
-  'settings.firstEventHedgeModels': '发起备用请求的模型',
+  'settings.firstEventHedgeModels': '竞速模型范围',
+  'settings.hedgeModelsAll': '全部符合条件的模型',
   'settings.firstEventHedgeModelsHelp':
-    '备用请求即使被取消也计入一次请求额度；只有 Ultra 账户的 gemini-4-argon 按 token 计额，其余模型按次计额，不建议选用',
+    '全部模型使用 *；指定模型未选择任何项时不竞速。仅适用于普通前台生成，包括内部逐步接收事件的非流式请求；不包括后台任务、Deep Research、助手路由、Build 原生非流式和独立图片/视频接口。此选择仅限制竞速，不限制独立的首字总期限。',
+  'settings.firstEventHedgeMaxConcurrency': '全局备用并发上限',
+  'settings.firstEventHedgeMaxConcurrencyHelp':
+    '所有请求共用的活动备用请求上限，必须为正整数，仍遵守各账户并发限制。调低不取消已有备用请求。',
+  'settings.firstEventTimeout': '首字总等待上限',
+  'settings.firstEventTimeoutHelp':
+    '从首次取得账户开始计时，准备、换号、再次排队和备用请求均不重置；到期仍无首个非错误上游事件时取消全部尝试。首次选号前排队不计入。独立于竞速与模型选择，适用范围与竞速相同；0 关闭，首字之后不限制流中停顿。',
+  'settings.firstEventRaceCooldown': '竞速冷却',
+  'settings.firstEventRaceCooldownHelp':
+    '只有另一个账户的备用请求先出首字、原请求仍在等待并被取代时，才冷却原账户的对应通道与模型。0 关闭；关闭竞速不再新增此冷却，但已有记录保留。',
+  'settings.modelBusyCooldown': '繁忙冷却',
+  'settings.modelBusyCooldownHelp':
+    '识别到模型繁忙型 HTTP 503 或协议错误码 14 时，冷却该账户的对应通道与模型，并保留失败换号。其他网络错误和普通 5xx 不归入此类。不依赖竞速，0 关闭；不覆盖额度或权限冷却。',
+  'settings.zeroDisables': '0 表示关闭此项',
+  'cooldowns.race': '竞速冷却',
+  'cooldowns.busy': '繁忙冷却',
+  'cooldowns.clearShortHint': '只清除此账户、通道、模型的这类短冷却，保留其他原因的冷却',
   'settings.environmentLocked': '由环境变量 {key} 决定，此处不可修改',
   'settings.proxyHelp': 'HTTP、HTTPS 或 SOCKS5 代理，多个用逗号分隔组成代理池；留空用系统代理',
   'settings.proxyPool': '代理池',

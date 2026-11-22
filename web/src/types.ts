@@ -373,12 +373,15 @@ export interface ThinkingBudget {
 
 export type UpstreamChannel = 'playground' | 'build' | 'assistant'
 
+export type ShortCooldownKind = 'race' | 'busy'
+
 export interface Cooldown {
   account_id: string
   account_label: string
   channel: UpstreamChannel
   model_id: string
   scope: string
+  kind?: ShortCooldownKind
   until: string
   reason?: string
 }
@@ -438,6 +441,10 @@ export interface ServiceConfig {
   strip_thought_signatures: boolean
   first_event_hedge: string
   first_event_hedge_models: string
+  first_event_hedge_max_concurrency: number
+  first_event_timeout_seconds: number
+  first_event_race_cooldown_seconds: number
+  model_busy_cooldown_seconds: number
   auth_states: string
   listen_addr: string
   preview_listen_addr: string

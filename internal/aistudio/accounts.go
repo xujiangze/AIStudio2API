@@ -276,12 +276,13 @@ type VideoResourceMetadata struct {
 }
 
 type accountRuntimeState struct {
-	Cooldowns          map[string]CooldownState   `json:"cooldowns,omitempty"`
-	Resources          map[string]ResourceBinding `json:"resources,omitempty"`
-	ModelAccess        map[string]ModelAccess     `json:"model_access,omitempty"`
-	BenefitTier        BenefitTier                `json:"benefit_tier,omitempty"`
-	CatalogFingerprint string                     `json:"catalog_fingerprint,omitempty"`
-	Proxy              string                     `json:"proxy,omitempty"`
+	ShortCooldowns     map[string]map[ShortCooldownKind]ShortCooldownState `json:"short_cooldowns,omitempty"`
+	Cooldowns          map[string]CooldownState                            `json:"cooldowns,omitempty"`
+	Resources          map[string]ResourceBinding                          `json:"resources,omitempty"`
+	ModelAccess        map[string]ModelAccess                              `json:"model_access,omitempty"`
+	BenefitTier        BenefitTier                                         `json:"benefit_tier,omitempty"`
+	CatalogFingerprint string                                              `json:"catalog_fingerprint,omitempty"`
+	Proxy              string                                              `json:"proxy,omitempty"`
 	// Restricted 是 Google 拒绝该账户使用 AI Studio 的原因与官网跳转页
 	Restricted string `json:"restricted,omitempty"`
 	// Assistant 是账户的 Build 写代码助手应用与其中可续接的对话
@@ -368,9 +369,11 @@ type AccountStatus struct {
 	Models      []string                 `json:"models"`
 	BenefitTier string                   `json:"benefit_tier"`
 	Cooldowns   map[string]CooldownState `json:"-"`
-	LastUsed    *time.Time               `json:"last_used,omitempty"`
-	Message     string                   `json:"message,omitempty"`
-	Directory   string                   `json:"-"`
+	// ShortCooldowns 按明确的 channel:model 作用域与短冷却类型保存状态
+	ShortCooldowns map[string]map[ShortCooldownKind]ShortCooldownState `json:"-"`
+	LastUsed       *time.Time                                          `json:"last_used,omitempty"`
+	Message        string                                              `json:"message,omitempty"`
+	Directory      string                                              `json:"-"`
 	// Transition 是账户正在进行的后台操作，没有时为空
 	Transition AccountTransition `json:"-"`
 	// TransitionStep 是后台操作当前的步骤，操作没有分步时为空
@@ -1056,6 +1059,9 @@ func NewAccountPool(accounts []*Account, perAccountConcurrency int) *AccountPool
 		routingStrategy: "round-robin", lastPicked: make(map[string]string), lastPickedChannel: make(map[string]Channel),
 	}
 	for _, account := range p.accounts {
+		if account.runtime.ShortCooldowns == nil {
+			account.runtime.ShortCooldowns = make(map[string]map[ShortCooldownKind]ShortCooldownState)
+		}
 		if account.runtime.Cooldowns == nil {
 			account.runtime.Cooldowns = make(map[string]CooldownState)
 		}
@@ -1129,6 +1135,9 @@ func (p *AccountPool) Add(account *Account) (resultErr error) {
 	defer p.mu.Unlock()
 	if _, exists := p.byID[account.ID]; exists {
 		return fmt.Errorf("账户已存在: %s", account.ID)
+	}
+	if account.runtime.ShortCooldowns == nil {
+		account.runtime.ShortCooldowns = make(map[string]map[ShortCooldownKind]ShortCooldownState)
 	}
 	if account.runtime.Cooldowns == nil {
 		account.runtime.Cooldowns = make(map[string]CooldownState)
@@ -1481,7 +1490,7 @@ func (p *AccountPool) refreshAndValidateLease(
 		return false, nil
 	}
 	if selection.ResourceID == "" && !selection.anyState {
-		if _, active := selectionCooldown(account, lease.CooldownScope(selectionAccessScope(selection)), selection, time.Now()); active {
+		if _, active := channelSelectionCooldown(account, lease.Channel(), selection, time.Now(), lease.CheckedAt()); active {
 			return false, nil
 		}
 	}
@@ -1657,16 +1666,19 @@ func (l *AccountLease) confirmAuthenticationFailureAt(ctx context.Context, cause
 	return l.markAuthenticationStateAt(true, cause.Error(), checkedAt)
 }
 
-// CoolingDown 返回租约账户当前是否处于全局或指定模型的冷却
+// CoolingDown 返回租约账户当前是否处于全局或指定模型的冷却，短冷却不阻止其标记前已取得的租约
 func (l *AccountLease) CoolingDown(modelID string) bool {
-	scope := l.CooldownScope(strings.TrimPrefix(strings.TrimSpace(modelID), "models/"))
+	selection := AccountSelection{
+		ModelID:             strings.TrimPrefix(strings.TrimSpace(modelID), "models/"),
+		IgnoreQuotaCooldown: l.ignoreQuotaCooldown, RequestSize: l.requestSize,
+	}
 	l.pool.mu.Lock()
 	defer l.pool.mu.Unlock()
 	account := l.pool.byID[l.account.ID]
 	if account == nil {
 		return false
 	}
-	_, active := selectionCooldown(account, scope, AccountSelection{IgnoreQuotaCooldown: l.ignoreQuotaCooldown, RequestSize: l.requestSize}, time.Now())
+	_, active := channelSelectionCooldown(account, l.Channel(), selection, time.Now(), l.CheckedAt())
 	return active
 }
 
@@ -2926,19 +2938,20 @@ func (p *AccountPool) Status() []AccountStatus {
 			progress = account.refresh
 		}
 		status := AccountStatus{
-			ID:          account.ID,
-			Label:       account.Config.Label,
-			State:       state,
-			Enabled:     account.Config.Enabled,
-			Proxy:       account.Config.Proxy,
-			Egress:      account.EffectiveProxy(""),
-			Locale:      account.Config.Locale,
-			Timezone:    account.Config.Timezone,
-			Models:      models,
-			BenefitTier: tier,
-			Cooldowns:   cloneCooldowns(account.runtime.Cooldowns),
-			Message:     message,
-			Directory:   account.Directory,
+			ID:             account.ID,
+			Label:          account.Config.Label,
+			State:          state,
+			Enabled:        account.Config.Enabled,
+			Proxy:          account.Config.Proxy,
+			Egress:         account.EffectiveProxy(""),
+			Locale:         account.Config.Locale,
+			Timezone:       account.Config.Timezone,
+			Models:         models,
+			BenefitTier:    tier,
+			Cooldowns:      cloneCooldowns(account.runtime.Cooldowns),
+			ShortCooldowns: cloneShortCooldowns(account.runtime.ShortCooldowns),
+			Message:        message,
+			Directory:      account.Directory,
 
 			Transition:       progress.operation,
 			TransitionStep:   progress.step,
@@ -3088,8 +3101,9 @@ func (p *AccountPool) tryAcquireLocked(selection AccountSelection, now time.Time
 			candidate.channel == ChannelAssistant && account.assistantBusy {
 			continue
 		}
+		// 资源绑定仍取得租约，由发送前 CoolingDown 检查冷却，保留文件失败后复制换号的路径。
 		if selection.ResourceID == "" && !selection.anyState {
-			if cooldown, active := selectionCooldown(account, ChannelCooldownScope(candidate.channel, selectionAccessScope(selection)), selection, now); active {
+			if cooldown, active := channelSelectionCooldown(account, candidate.channel, selection, now, time.Time{}); active {
 				if earliest.IsZero() || cooldown.Until.Before(earliest) {
 					earliest = cooldown.Until
 				}
@@ -3663,9 +3677,10 @@ func readRuntimeData(filePath string) ([]byte, error) {
 // decodeRuntime 解析 runtime-state.json 的内容，nil 为空运行态
 func decodeRuntime(data []byte) (accountRuntimeState, error) {
 	value := accountRuntimeState{
-		Cooldowns:   make(map[string]CooldownState),
-		Resources:   make(map[string]ResourceBinding),
-		ModelAccess: make(map[string]ModelAccess),
+		ShortCooldowns: make(map[string]map[ShortCooldownKind]ShortCooldownState),
+		Cooldowns:      make(map[string]CooldownState),
+		Resources:      make(map[string]ResourceBinding),
+		ModelAccess:    make(map[string]ModelAccess),
 	}
 	if data == nil {
 		return value, nil
@@ -4079,6 +4094,7 @@ func (p *AccountPool) refreshSelectionRuntimes(ctx context.Context, selection Ac
 
 func cloneRuntime(value accountRuntimeState) accountRuntimeState {
 	result := accountRuntimeState{
+		ShortCooldowns:     cloneShortCooldowns(value.ShortCooldowns),
 		Cooldowns:          make(map[string]CooldownState, len(value.Cooldowns)),
 		Resources:          make(map[string]ResourceBinding, len(value.Resources)),
 		ModelAccess:        make(map[string]ModelAccess, len(value.ModelAccess)),

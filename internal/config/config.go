@@ -69,6 +69,10 @@ var configKeys = [...]string{
 	"GOOGLE_SEARCH",
 	"FIRST_EVENT_HEDGE",
 	"FIRST_EVENT_HEDGE_MODELS",
+	"FIRST_EVENT_HEDGE_MAX_CONCURRENCY",
+	"FIRST_EVENT_TIMEOUT_SECONDS",
+	"FIRST_EVENT_RACE_COOLDOWN_SECONDS",
+	"MODEL_BUSY_COOLDOWN_SECONDS",
 	"CONTINUATION_REWRITE",
 	"CONTINUATION_PROMPT",
 }
@@ -97,8 +101,11 @@ const FirstEventHedgeAuto = "auto"
 // DefaultMaxAccountSwitches 是 MAX_ACCOUNT_SWITCHES 的默认值
 const DefaultMaxAccountSwitches = 3
 
-// DefaultFirstEventHedgeModels 是 FIRST_EVENT_HEDGE_MODELS 的默认值
-const DefaultFirstEventHedgeModels = "gemini-4-argon"
+// DefaultFirstEventHedge 是 FIRST_EVENT_HEDGE 的默认等待秒数
+const DefaultFirstEventHedge = "20"
+
+// DefaultFirstEventHedgeModels 是 FIRST_EVENT_HEDGE_MODELS 的默认值，* 表示全部符合条件的模型
+const DefaultFirstEventHedgeModels = "*"
 
 // MediaOutputInline 表示 Chat 与 Messages 正文以 data URI 内联生成的媒体
 const MediaOutputInline = "inline"
@@ -130,33 +137,37 @@ type Config struct {
 	// ErrorMaskEnabled 开启对外错误遮蔽：5xx 返回统一文案，4xx 透传前替换暴露服务来源的关键词
 	ErrorMaskEnabled bool
 	// ErrorMaskServerMessage 是 5xx 对外返回的统一文案，为空时用默认文案
-	ErrorMaskServerMessage string
-	FirstEventHedge        string
-	FirstEventHedgeModels  string
-	ContinuationRewrite    bool
-	ContinuationPrompt     string
-	AuthStates             string
-	ListenAddr             string
-	PreviewListenAddr      string
-	ProxyAPIKey            string
-	APIKeyAccounts         string
-	Proxy                  string
-	InitTimeout            time.Duration
-	RequestTimeout         time.Duration
-	WarmWorkerLimit        int
-	MaxActiveWorkers       int
-	WarmStartupConcurrency int
-	PerAccountConcurrency  int
-	RoutingStrategy        string
-	AccountOrder           string
-	MaxAccountSwitches     int
-	UpstreamChannels       []string
-	ModelMapping           string
-	ModelChannels          string
-	ModelAccounts          string
-	WAABackend             string
-	MediaOutput            string
-	MediaBaseURL           string
+	ErrorMaskServerMessage        string
+	FirstEventHedge               string
+	FirstEventHedgeModels         string
+	FirstEventHedgeMaxConcurrency int
+	FirstEventTimeoutSeconds      int
+	FirstEventRaceCooldownSeconds int
+	ModelBusyCooldownSeconds      int
+	ContinuationRewrite           bool
+	ContinuationPrompt            string
+	AuthStates                    string
+	ListenAddr                    string
+	PreviewListenAddr             string
+	ProxyAPIKey                   string
+	APIKeyAccounts                string
+	Proxy                         string
+	InitTimeout                   time.Duration
+	RequestTimeout                time.Duration
+	WarmWorkerLimit               int
+	MaxActiveWorkers              int
+	WarmStartupConcurrency        int
+	PerAccountConcurrency         int
+	RoutingStrategy               string
+	AccountOrder                  string
+	MaxAccountSwitches            int
+	UpstreamChannels              []string
+	ModelMapping                  string
+	ModelChannels                 string
+	ModelAccounts                 string
+	WAABackend                    string
+	MediaOutput                   string
+	MediaBaseURL                  string
 	// Invalid 是加载时取值无效、改用默认值的配置项
 	Invalid []InvalidValue
 	// Environment 是取自进程环境变量、覆盖 .env 的配置键
@@ -178,31 +189,35 @@ func defaultsFor(backend string) Config {
 // Default 返回可直接启动的默认配置
 func Default() Config {
 	return Config{
-		AdminUsername:          "admin",
-		LogFile:                true,
-		LogMaxTotalMB:          500,
-		BuildNativeNonstream:   true,
-		NonstreamKeepalive:     true,
-		SearchModelAliases:     true,
-		ErrorMaskEnabled:       true,
-		FirstEventHedge:        FirstEventHedgeOff,
-		FirstEventHedgeModels:  DefaultFirstEventHedgeModels,
-		ContinuationRewrite:    true,
-		ContinuationPrompt:     DefaultContinuationPrompt,
-		AuthStates:             defaultAuthStates,
-		ListenAddr:             defaultListenAddr,
-		PreviewListenAddr:      defaultPreviewListenAddr,
-		InitTimeout:            defaultInitTimeout,
-		RequestTimeout:         defaultRequestTimeout,
-		WarmWorkerLimit:        defaultWarmWorkerLimit,
-		MaxActiveWorkers:       defaultMaxActiveWorkers,
-		WarmStartupConcurrency: defaultWarmConcurrency,
-		PerAccountConcurrency:  defaultAccountConcurrency,
-		RoutingStrategy:        "round-robin",
-		MaxAccountSwitches:     DefaultMaxAccountSwitches,
-		UpstreamChannels:       []string{"playground"},
-		WAABackend:             WAABackendSpiderMonkey,
-		MediaOutput:            MediaOutputInline,
+		AdminUsername:                 "admin",
+		LogFile:                       true,
+		LogMaxTotalMB:                 500,
+		BuildNativeNonstream:          true,
+		NonstreamKeepalive:            true,
+		SearchModelAliases:            true,
+		ErrorMaskEnabled:              true,
+		FirstEventHedge:               DefaultFirstEventHedge,
+		FirstEventHedgeModels:         DefaultFirstEventHedgeModels,
+		FirstEventHedgeMaxConcurrency: 16,
+		FirstEventTimeoutSeconds:      60,
+		FirstEventRaceCooldownSeconds: 30,
+		ModelBusyCooldownSeconds:      10,
+		ContinuationRewrite:           true,
+		ContinuationPrompt:            DefaultContinuationPrompt,
+		AuthStates:                    defaultAuthStates,
+		ListenAddr:                    defaultListenAddr,
+		PreviewListenAddr:             defaultPreviewListenAddr,
+		InitTimeout:                   defaultInitTimeout,
+		RequestTimeout:                defaultRequestTimeout,
+		WarmWorkerLimit:               defaultWarmWorkerLimit,
+		MaxActiveWorkers:              defaultMaxActiveWorkers,
+		WarmStartupConcurrency:        defaultWarmConcurrency,
+		PerAccountConcurrency:         defaultAccountConcurrency,
+		RoutingStrategy:               "round-robin",
+		MaxAccountSwitches:            DefaultMaxAccountSwitches,
+		UpstreamChannels:              []string{"playground"},
+		WAABackend:                    WAABackendSpiderMonkey,
+		MediaOutput:                   MediaOutputInline,
 	}
 }
 
@@ -226,49 +241,53 @@ func invalidValue(key, value string, err error) InvalidValue {
 
 // configSetters 把每个配置键的文本值解析到 Config
 var configSetters = map[string]func(*Config, string) error{
-	"AUTO_START":                boolSetter("AUTO_START", func(c *Config) *bool { return &c.AutoStart }),
-	"HIDE_DOCK_ICON":            boolSetter("HIDE_DOCK_ICON", func(c *Config) *bool { return &c.HideDockIcon }),
-	"REQUEST_BODY_LOG":          boolSetter("REQUEST_BODY_LOG", func(c *Config) *bool { return &c.RequestBodyLog }),
-	"LOG_FILE":                  boolSetter("LOG_FILE", func(c *Config) *bool { return &c.LogFile }),
-	"ADMIN_AUTH_ENABLED":        boolSetter("ADMIN_AUTH_ENABLED", func(c *Config) *bool { return &c.AdminAuthEnabled }),
-	"BUILD_NATIVE_NONSTREAM":    boolSetter("BUILD_NATIVE_NONSTREAM", func(c *Config) *bool { return &c.BuildNativeNonstream }),
-	"NONSTREAM_KEEPALIVE":       boolSetter("NONSTREAM_KEEPALIVE", func(c *Config) *bool { return &c.NonstreamKeepalive }),
-	"FAKE_STREAM":               boolSetter("FAKE_STREAM", func(c *Config) *bool { return &c.FakeStream }),
-	"SEARCH_MODEL_ALIASES":      boolSetter("SEARCH_MODEL_ALIASES", func(c *Config) *bool { return &c.SearchModelAliases }),
-	"DISCOVER_HIDDEN_MODELS":    boolSetter("DISCOVER_HIDDEN_MODELS", func(c *Config) *bool { return &c.DiscoverHiddenModels }),
-	"GOOGLE_SEARCH":             boolSetter("GOOGLE_SEARCH", func(c *Config) *bool { return &c.GoogleSearch }),
-	"ERROR_MASK_ENABLED":        boolSetter("ERROR_MASK_ENABLED", func(c *Config) *bool { return &c.ErrorMaskEnabled }),
-	"ERROR_MASK_SERVER_MESSAGE": textSetter(func(c *Config) *string { return &c.ErrorMaskServerMessage }, strings.TrimSpace),
-	"YOUTUBE_LINKS":             boolSetter("YOUTUBE_LINKS", func(c *Config) *bool { return &c.YouTubeLinks }),
-	"STRIP_THOUGHT_SIGNATURES":  boolSetter("STRIP_THOUGHT_SIGNATURES", func(c *Config) *bool { return &c.StripThoughtSignatures }),
-	"CONTINUATION_REWRITE":      boolSetter("CONTINUATION_REWRITE", func(c *Config) *bool { return &c.ContinuationRewrite }),
-	"LOG_MAX_TOTAL_MB":          intSetter("LOG_MAX_TOTAL_MB", func(c *Config) *int { return &c.LogMaxTotalMB }),
-	"WARM_WORKER_LIMIT":         intSetter("WARM_WORKER_LIMIT", func(c *Config) *int { return &c.WarmWorkerLimit }),
-	"MAX_ACTIVE_WORKERS":        intSetter("MAX_ACTIVE_WORKERS", func(c *Config) *int { return &c.MaxActiveWorkers }),
-	"WARM_STARTUP_CONCURRENCY":  intSetter("WARM_STARTUP_CONCURRENCY", func(c *Config) *int { return &c.WarmStartupConcurrency }),
-	"PER_ACCOUNT_CONCURRENCY":   intSetter("PER_ACCOUNT_CONCURRENCY", func(c *Config) *int { return &c.PerAccountConcurrency }),
-	"MAX_ACCOUNT_SWITCHES":      setMaxAccountSwitches,
-	"INIT_TIMEOUT":              durationSetter("INIT_TIMEOUT", func(c *Config) *time.Duration { return &c.InitTimeout }),
-	"REQUEST_TIMEOUT":           durationSetter("REQUEST_TIMEOUT", func(c *Config) *time.Duration { return &c.RequestTimeout }),
-	"ADMIN_USERNAME":            textSetter(func(c *Config) *string { return &c.AdminUsername }, strings.TrimSpace),
-	"ADMIN_PASSWORD":            textSetter(func(c *Config) *string { return &c.AdminPassword }, func(value string) string { return value }),
-	"FIRST_EVENT_HEDGE":         textSetter(func(c *Config) *string { return &c.FirstEventHedge }, lowerTrim),
-	"FIRST_EVENT_HEDGE_MODELS":  textSetter(func(c *Config) *string { return &c.FirstEventHedgeModels }, strings.TrimSpace),
-	"CONTINUATION_PROMPT":       textSetter(func(c *Config) *string { return &c.ContinuationPrompt }, strings.TrimSpace),
-	"AISTUDIO_AUTH_STATES":      textSetter(func(c *Config) *string { return &c.AuthStates }, strings.TrimSpace),
-	"LISTEN_ADDR":               textSetter(func(c *Config) *string { return &c.ListenAddr }, strings.TrimSpace),
-	"PREVIEW_LISTEN_ADDR":       textSetter(func(c *Config) *string { return &c.PreviewListenAddr }, strings.TrimSpace),
-	"PROXY_API_KEY":             textSetter(func(c *Config) *string { return &c.ProxyAPIKey }, strings.TrimSpace),
-	"PROXY":                     textSetter(func(c *Config) *string { return &c.Proxy }, strings.TrimSpace),
-	"ROUTING_STRATEGY":          textSetter(func(c *Config) *string { return &c.RoutingStrategy }, strings.TrimSpace),
-	"ACCOUNT_ORDER":             textSetter(func(c *Config) *string { return &c.AccountOrder }, strings.TrimSpace),
-	"MODEL_MAPPING":             textSetter(func(c *Config) *string { return &c.ModelMapping }, strings.TrimSpace),
-	"MODEL_CHANNELS":            textSetter(func(c *Config) *string { return &c.ModelChannels }, strings.TrimSpace),
-	"MODEL_ACCOUNTS":            textSetter(func(c *Config) *string { return &c.ModelAccounts }, strings.TrimSpace),
-	"API_KEY_ACCOUNTS":          textSetter(func(c *Config) *string { return &c.APIKeyAccounts }, strings.TrimSpace),
-	"WAA_BACKEND":               setWAABackend,
-	"MEDIA_OUTPUT":              textSetter(func(c *Config) *string { return &c.MediaOutput }, lowerTrim),
-	"MEDIA_BASE_URL":            textSetter(func(c *Config) *string { return &c.MediaBaseURL }, strings.TrimSpace),
+	"AUTO_START":                        boolSetter("AUTO_START", func(c *Config) *bool { return &c.AutoStart }),
+	"HIDE_DOCK_ICON":                    boolSetter("HIDE_DOCK_ICON", func(c *Config) *bool { return &c.HideDockIcon }),
+	"REQUEST_BODY_LOG":                  boolSetter("REQUEST_BODY_LOG", func(c *Config) *bool { return &c.RequestBodyLog }),
+	"LOG_FILE":                          boolSetter("LOG_FILE", func(c *Config) *bool { return &c.LogFile }),
+	"ADMIN_AUTH_ENABLED":                boolSetter("ADMIN_AUTH_ENABLED", func(c *Config) *bool { return &c.AdminAuthEnabled }),
+	"BUILD_NATIVE_NONSTREAM":            boolSetter("BUILD_NATIVE_NONSTREAM", func(c *Config) *bool { return &c.BuildNativeNonstream }),
+	"NONSTREAM_KEEPALIVE":               boolSetter("NONSTREAM_KEEPALIVE", func(c *Config) *bool { return &c.NonstreamKeepalive }),
+	"FAKE_STREAM":                       boolSetter("FAKE_STREAM", func(c *Config) *bool { return &c.FakeStream }),
+	"SEARCH_MODEL_ALIASES":              boolSetter("SEARCH_MODEL_ALIASES", func(c *Config) *bool { return &c.SearchModelAliases }),
+	"DISCOVER_HIDDEN_MODELS":            boolSetter("DISCOVER_HIDDEN_MODELS", func(c *Config) *bool { return &c.DiscoverHiddenModels }),
+	"GOOGLE_SEARCH":                     boolSetter("GOOGLE_SEARCH", func(c *Config) *bool { return &c.GoogleSearch }),
+	"ERROR_MASK_ENABLED":                boolSetter("ERROR_MASK_ENABLED", func(c *Config) *bool { return &c.ErrorMaskEnabled }),
+	"ERROR_MASK_SERVER_MESSAGE":         textSetter(func(c *Config) *string { return &c.ErrorMaskServerMessage }, strings.TrimSpace),
+	"YOUTUBE_LINKS":                     boolSetter("YOUTUBE_LINKS", func(c *Config) *bool { return &c.YouTubeLinks }),
+	"STRIP_THOUGHT_SIGNATURES":          boolSetter("STRIP_THOUGHT_SIGNATURES", func(c *Config) *bool { return &c.StripThoughtSignatures }),
+	"CONTINUATION_REWRITE":              boolSetter("CONTINUATION_REWRITE", func(c *Config) *bool { return &c.ContinuationRewrite }),
+	"LOG_MAX_TOTAL_MB":                  intSetter("LOG_MAX_TOTAL_MB", func(c *Config) *int { return &c.LogMaxTotalMB }),
+	"WARM_WORKER_LIMIT":                 intSetter("WARM_WORKER_LIMIT", func(c *Config) *int { return &c.WarmWorkerLimit }),
+	"MAX_ACTIVE_WORKERS":                intSetter("MAX_ACTIVE_WORKERS", func(c *Config) *int { return &c.MaxActiveWorkers }),
+	"WARM_STARTUP_CONCURRENCY":          intSetter("WARM_STARTUP_CONCURRENCY", func(c *Config) *int { return &c.WarmStartupConcurrency }),
+	"PER_ACCOUNT_CONCURRENCY":           intSetter("PER_ACCOUNT_CONCURRENCY", func(c *Config) *int { return &c.PerAccountConcurrency }),
+	"MAX_ACCOUNT_SWITCHES":              setMaxAccountSwitches,
+	"INIT_TIMEOUT":                      durationSetter("INIT_TIMEOUT", func(c *Config) *time.Duration { return &c.InitTimeout }),
+	"REQUEST_TIMEOUT":                   durationSetter("REQUEST_TIMEOUT", func(c *Config) *time.Duration { return &c.RequestTimeout }),
+	"ADMIN_USERNAME":                    textSetter(func(c *Config) *string { return &c.AdminUsername }, strings.TrimSpace),
+	"ADMIN_PASSWORD":                    textSetter(func(c *Config) *string { return &c.AdminPassword }, func(value string) string { return value }),
+	"FIRST_EVENT_HEDGE":                 textSetter(func(c *Config) *string { return &c.FirstEventHedge }, lowerTrim),
+	"FIRST_EVENT_HEDGE_MODELS":          textSetter(func(c *Config) *string { return &c.FirstEventHedgeModels }, strings.TrimSpace),
+	"FIRST_EVENT_HEDGE_MAX_CONCURRENCY": intSetter("FIRST_EVENT_HEDGE_MAX_CONCURRENCY", func(c *Config) *int { return &c.FirstEventHedgeMaxConcurrency }),
+	"FIRST_EVENT_TIMEOUT_SECONDS":       nonnegativeIntSetter("FIRST_EVENT_TIMEOUT_SECONDS", func(c *Config) *int { return &c.FirstEventTimeoutSeconds }),
+	"FIRST_EVENT_RACE_COOLDOWN_SECONDS": nonnegativeIntSetter("FIRST_EVENT_RACE_COOLDOWN_SECONDS", func(c *Config) *int { return &c.FirstEventRaceCooldownSeconds }),
+	"MODEL_BUSY_COOLDOWN_SECONDS":       nonnegativeIntSetter("MODEL_BUSY_COOLDOWN_SECONDS", func(c *Config) *int { return &c.ModelBusyCooldownSeconds }),
+	"CONTINUATION_PROMPT":               textSetter(func(c *Config) *string { return &c.ContinuationPrompt }, strings.TrimSpace),
+	"AISTUDIO_AUTH_STATES":              textSetter(func(c *Config) *string { return &c.AuthStates }, strings.TrimSpace),
+	"LISTEN_ADDR":                       textSetter(func(c *Config) *string { return &c.ListenAddr }, strings.TrimSpace),
+	"PREVIEW_LISTEN_ADDR":               textSetter(func(c *Config) *string { return &c.PreviewListenAddr }, strings.TrimSpace),
+	"PROXY_API_KEY":                     textSetter(func(c *Config) *string { return &c.ProxyAPIKey }, strings.TrimSpace),
+	"PROXY":                             textSetter(func(c *Config) *string { return &c.Proxy }, strings.TrimSpace),
+	"ROUTING_STRATEGY":                  textSetter(func(c *Config) *string { return &c.RoutingStrategy }, strings.TrimSpace),
+	"ACCOUNT_ORDER":                     textSetter(func(c *Config) *string { return &c.AccountOrder }, strings.TrimSpace),
+	"MODEL_MAPPING":                     textSetter(func(c *Config) *string { return &c.ModelMapping }, strings.TrimSpace),
+	"MODEL_CHANNELS":                    textSetter(func(c *Config) *string { return &c.ModelChannels }, strings.TrimSpace),
+	"MODEL_ACCOUNTS":                    textSetter(func(c *Config) *string { return &c.ModelAccounts }, strings.TrimSpace),
+	"API_KEY_ACCOUNTS":                  textSetter(func(c *Config) *string { return &c.APIKeyAccounts }, strings.TrimSpace),
+	"WAA_BACKEND":                       setWAABackend,
+	"MEDIA_OUTPUT":                      textSetter(func(c *Config) *string { return &c.MediaOutput }, lowerTrim),
+	"MEDIA_BASE_URL":                    textSetter(func(c *Config) *string { return &c.MediaBaseURL }, strings.TrimSpace),
 	"UPSTREAM_CHANNELS": func(c *Config, value string) error {
 		c.UpstreamChannels = parseUpstreamChannels(value)
 		return nil
@@ -291,6 +310,17 @@ func intSetter(key string, field func(*Config) *int) func(*Config, string) error
 		parsed, err := parsePositiveInt(key, value)
 		if err != nil {
 			return err
+		}
+		*field(c) = parsed
+		return nil
+	}
+}
+
+func nonnegativeIntSetter(key string, field func(*Config) *int) func(*Config, string) error {
+	return func(c *Config, value string) error {
+		parsed, err := strconv.Atoi(strings.TrimSpace(value))
+		if err != nil || parsed < 0 {
+			return fmt.Errorf("%s 必须是 0 或正整数", key)
 		}
 		*field(c) = parsed
 		return nil
@@ -442,6 +472,30 @@ var configChecks = []configCheck{
 	{[]string{"FIRST_EVENT_HEDGE"}, func(c Config) error {
 		_, _, err := ParseFirstEventHedge(c.FirstEventHedge)
 		return err
+	}},
+	{[]string{"FIRST_EVENT_HEDGE_MAX_CONCURRENCY"}, func(c Config) error {
+		if c.FirstEventHedgeMaxConcurrency <= 0 {
+			return fmt.Errorf("FIRST_EVENT_HEDGE_MAX_CONCURRENCY 必须是正整数")
+		}
+		return nil
+	}},
+	{[]string{"FIRST_EVENT_TIMEOUT_SECONDS"}, func(c Config) error {
+		if c.FirstEventTimeoutSeconds < 0 {
+			return fmt.Errorf("FIRST_EVENT_TIMEOUT_SECONDS 必须是 0 或正整数")
+		}
+		return nil
+	}},
+	{[]string{"FIRST_EVENT_RACE_COOLDOWN_SECONDS"}, func(c Config) error {
+		if c.FirstEventRaceCooldownSeconds < 0 {
+			return fmt.Errorf("FIRST_EVENT_RACE_COOLDOWN_SECONDS 必须是 0 或正整数")
+		}
+		return nil
+	}},
+	{[]string{"MODEL_BUSY_COOLDOWN_SECONDS"}, func(c Config) error {
+		if c.ModelBusyCooldownSeconds < 0 {
+			return fmt.Errorf("MODEL_BUSY_COOLDOWN_SECONDS 必须是 0 或正整数")
+		}
+		return nil
 	}},
 	{[]string{"MEDIA_OUTPUT"}, func(c Config) error {
 		if c.MediaOutput != MediaOutputInline && c.MediaOutput != MediaOutputURL {
@@ -599,50 +653,54 @@ func (c Config) KeepEnvironment(saved Config) Config {
 // envValues 返回每个配置键在 .env 中的文本值
 func (c Config) envValues() map[string]string {
 	return map[string]string{
-		"AUTO_START":                strconv.FormatBool(c.AutoStart),
-		"HIDE_DOCK_ICON":            strconv.FormatBool(c.HideDockIcon),
-		"REQUEST_BODY_LOG":          strconv.FormatBool(c.RequestBodyLog),
-		"LOG_FILE":                  strconv.FormatBool(c.LogFile),
-		"LOG_MAX_TOTAL_MB":          strconv.Itoa(c.LogMaxTotalMB),
-		"ADMIN_AUTH_ENABLED":        strconv.FormatBool(c.AdminAuthEnabled),
-		"ADMIN_USERNAME":            c.AdminUsername,
-		"ADMIN_PASSWORD":            c.AdminPassword,
-		"BUILD_NATIVE_NONSTREAM":    strconv.FormatBool(c.BuildNativeNonstream),
-		"NONSTREAM_KEEPALIVE":       strconv.FormatBool(c.NonstreamKeepalive),
-		"FAKE_STREAM":               strconv.FormatBool(c.FakeStream),
-		"YOUTUBE_LINKS":             strconv.FormatBool(c.YouTubeLinks),
-		"STRIP_THOUGHT_SIGNATURES":  strconv.FormatBool(c.StripThoughtSignatures),
-		"SEARCH_MODEL_ALIASES":      strconv.FormatBool(c.SearchModelAliases),
-		"DISCOVER_HIDDEN_MODELS":    strconv.FormatBool(c.DiscoverHiddenModels),
-		"GOOGLE_SEARCH":             strconv.FormatBool(c.GoogleSearch),
-		"ERROR_MASK_ENABLED":        strconv.FormatBool(c.ErrorMaskEnabled),
-		"ERROR_MASK_SERVER_MESSAGE": c.ErrorMaskServerMessage,
-		"FIRST_EVENT_HEDGE":         c.FirstEventHedge,
-		"FIRST_EVENT_HEDGE_MODELS":  c.FirstEventHedgeModels,
-		"CONTINUATION_REWRITE":      strconv.FormatBool(c.ContinuationRewrite),
-		"CONTINUATION_PROMPT":       c.ContinuationPrompt,
-		"AISTUDIO_AUTH_STATES":      c.AuthStates,
-		"LISTEN_ADDR":               c.ListenAddr,
-		"PREVIEW_LISTEN_ADDR":       c.PreviewListenAddr,
-		"PROXY_API_KEY":             c.ProxyAPIKey,
-		"PROXY":                     c.Proxy,
-		"INIT_TIMEOUT":              c.InitTimeout.String(),
-		"REQUEST_TIMEOUT":           c.RequestTimeout.String(),
-		"WARM_WORKER_LIMIT":         strconv.Itoa(c.WarmWorkerLimit),
-		"MAX_ACTIVE_WORKERS":        strconv.Itoa(c.MaxActiveWorkers),
-		"WARM_STARTUP_CONCURRENCY":  strconv.Itoa(c.WarmStartupConcurrency),
-		"PER_ACCOUNT_CONCURRENCY":   strconv.Itoa(c.PerAccountConcurrency),
-		"ROUTING_STRATEGY":          c.RoutingStrategy,
-		"ACCOUNT_ORDER":             c.AccountOrder,
-		"MAX_ACCOUNT_SWITCHES":      strconv.Itoa(c.MaxAccountSwitches),
-		"UPSTREAM_CHANNELS":         strings.Join(c.UpstreamChannels, ","),
-		"MODEL_MAPPING":             c.ModelMapping,
-		"MODEL_CHANNELS":            c.ModelChannels,
-		"MODEL_ACCOUNTS":            c.ModelAccounts,
-		"API_KEY_ACCOUNTS":          c.APIKeyAccounts,
-		"WAA_BACKEND":               c.WAABackend,
-		"MEDIA_OUTPUT":              c.MediaOutput,
-		"MEDIA_BASE_URL":            c.MediaBaseURL,
+		"AUTO_START":                        strconv.FormatBool(c.AutoStart),
+		"HIDE_DOCK_ICON":                    strconv.FormatBool(c.HideDockIcon),
+		"REQUEST_BODY_LOG":                  strconv.FormatBool(c.RequestBodyLog),
+		"LOG_FILE":                          strconv.FormatBool(c.LogFile),
+		"LOG_MAX_TOTAL_MB":                  strconv.Itoa(c.LogMaxTotalMB),
+		"ADMIN_AUTH_ENABLED":                strconv.FormatBool(c.AdminAuthEnabled),
+		"ADMIN_USERNAME":                    c.AdminUsername,
+		"ADMIN_PASSWORD":                    c.AdminPassword,
+		"BUILD_NATIVE_NONSTREAM":            strconv.FormatBool(c.BuildNativeNonstream),
+		"NONSTREAM_KEEPALIVE":               strconv.FormatBool(c.NonstreamKeepalive),
+		"FAKE_STREAM":                       strconv.FormatBool(c.FakeStream),
+		"YOUTUBE_LINKS":                     strconv.FormatBool(c.YouTubeLinks),
+		"STRIP_THOUGHT_SIGNATURES":          strconv.FormatBool(c.StripThoughtSignatures),
+		"SEARCH_MODEL_ALIASES":              strconv.FormatBool(c.SearchModelAliases),
+		"DISCOVER_HIDDEN_MODELS":            strconv.FormatBool(c.DiscoverHiddenModels),
+		"GOOGLE_SEARCH":                     strconv.FormatBool(c.GoogleSearch),
+		"ERROR_MASK_ENABLED":                strconv.FormatBool(c.ErrorMaskEnabled),
+		"ERROR_MASK_SERVER_MESSAGE":         c.ErrorMaskServerMessage,
+		"FIRST_EVENT_HEDGE":                 c.FirstEventHedge,
+		"FIRST_EVENT_HEDGE_MODELS":          c.FirstEventHedgeModels,
+		"FIRST_EVENT_HEDGE_MAX_CONCURRENCY": strconv.Itoa(c.FirstEventHedgeMaxConcurrency),
+		"FIRST_EVENT_TIMEOUT_SECONDS":       strconv.Itoa(c.FirstEventTimeoutSeconds),
+		"FIRST_EVENT_RACE_COOLDOWN_SECONDS": strconv.Itoa(c.FirstEventRaceCooldownSeconds),
+		"MODEL_BUSY_COOLDOWN_SECONDS":       strconv.Itoa(c.ModelBusyCooldownSeconds),
+		"CONTINUATION_REWRITE":              strconv.FormatBool(c.ContinuationRewrite),
+		"CONTINUATION_PROMPT":               c.ContinuationPrompt,
+		"AISTUDIO_AUTH_STATES":              c.AuthStates,
+		"LISTEN_ADDR":                       c.ListenAddr,
+		"PREVIEW_LISTEN_ADDR":               c.PreviewListenAddr,
+		"PROXY_API_KEY":                     c.ProxyAPIKey,
+		"PROXY":                             c.Proxy,
+		"INIT_TIMEOUT":                      c.InitTimeout.String(),
+		"REQUEST_TIMEOUT":                   c.RequestTimeout.String(),
+		"WARM_WORKER_LIMIT":                 strconv.Itoa(c.WarmWorkerLimit),
+		"MAX_ACTIVE_WORKERS":                strconv.Itoa(c.MaxActiveWorkers),
+		"WARM_STARTUP_CONCURRENCY":          strconv.Itoa(c.WarmStartupConcurrency),
+		"PER_ACCOUNT_CONCURRENCY":           strconv.Itoa(c.PerAccountConcurrency),
+		"ROUTING_STRATEGY":                  c.RoutingStrategy,
+		"ACCOUNT_ORDER":                     c.AccountOrder,
+		"MAX_ACCOUNT_SWITCHES":              strconv.Itoa(c.MaxAccountSwitches),
+		"UPSTREAM_CHANNELS":                 strings.Join(c.UpstreamChannels, ","),
+		"MODEL_MAPPING":                     c.ModelMapping,
+		"MODEL_CHANNELS":                    c.ModelChannels,
+		"MODEL_ACCOUNTS":                    c.ModelAccounts,
+		"API_KEY_ACCOUNTS":                  c.APIKeyAccounts,
+		"WAA_BACKEND":                       c.WAABackend,
+		"MEDIA_OUTPUT":                      c.MediaOutput,
+		"MEDIA_BASE_URL":                    c.MediaBaseURL,
 	}
 }
 

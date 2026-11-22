@@ -2003,21 +2003,41 @@ export const messages: Record<TranslationKey, string> = {
   'settings.unitSeconds': '秒',
   'settings.unitMinutes': '分',
   'settings.timeUnit': '時間の単位',
-  'settings.firstEventHedge': '初回トークン遅延時の予備リクエスト',
+  'settings.firstEventHedge': '初回イベント競争',
   'settings.firstEventHedgeHelp':
-    '初回トークンが遅いときは空きアカウントで再送し、先に応答した方を使ってもう一方を取り消します',
+    '元の試行がアカウントを取得した時点から計測し、しきい値までに初回イベントがなければ、準備済みで空き枠のある別のアカウントに予備リクエストを送ります。先にイベントを受け取った方を継続します。初回イベントは思考要約を含む最初の非エラー上流イベントで、表示本文とは限りません。予備も割り当てを消費します。',
+  'settings.firstEventPolicyHint':
+    '競争、初回イベントの総待機上限、混雑クールダウンは独立しています。保存は新規リクエストに適用され、実行中は元の設定を維持します。クールダウンの変更や無効化で既存の記録は解除されません。',
   'settings.firstEventHedgeOff': 'オフ',
   'settings.firstEventHedgeAuto': '自動（直近の p95）',
   'settings.firstEventHedgeCustom': 'カスタム',
   'settings.firstEventHedgeSeconds': '待機秒数',
   'settings.firstEventHedgeUnit': '秒',
   'settings.firstEventHedgeAutoHint':
-    'モデルとチャネルごとに直近 24 時間の初回トークン p95 だけ待ちます。リクエストが 20 件未満なら送りません',
+    'モデルとチャネルごとに直近 24 時間の初回イベント p95 を使用します。リクエストが 20 件未満なら送りません',
   'settings.firstEventHedgeCustomHint':
-    '参考：{model} の直近 24 時間の初回トークン p95 は {seconds} 秒',
-  'settings.firstEventHedgeModels': '予備リクエストを送るモデル',
+    '参考：{model} の直近 24 時間の初回イベント p95 は {seconds} 秒',
+  'settings.firstEventHedgeModels': '競争対象のモデル',
+  'settings.hedgeModelsAll': '対象となるすべてのモデル',
   'settings.firstEventHedgeModelsHelp':
-    '予備リクエストは取り消されても 1 回分のリクエスト枠を消費します。トークン制は Ultra アカウントの gemini-4-argon のみで、その他のモデルは回数制のため推奨しません',
+    'すべてのモデルは * として保存されます。指定一覧が空なら競争しません。対象は通常のフォアグラウンド生成のみで、上流イベントを逐次受信する非ストリーミング要求も含みます。バックグラウンド処理、Deep Research、アシスタント経路、Build のネイティブ非ストリーミング、独立した画像・動画 API は対象外です。この選択は競争のみを制限し、独立した初回イベント期限は制限しません。',
+  'settings.firstEventHedgeMaxConcurrency': '予備リクエストの全体同時実行上限',
+  'settings.firstEventHedgeMaxConcurrencyHelp':
+    '全リクエストで共有する実行中の予備の上限です。正の整数が必要で、アカウント別の上限にも従います。下げても実行中の予備は取り消しません。',
+  'settings.firstEventTimeout': '初回イベントの総待機上限',
+  'settings.firstEventTimeoutHelp':
+    '最初のアカウント取得から計測し、準備、アカウント変更、再待機、予備の起動でもリセットしません。期限までに非エラーイベントがなければ全試行を取り消します。初回取得前の待機は含みません。競争やモデル選択とは独立し、対象範囲は競争と同じです。0 で無効。初回イベント後の停止には適用しません。',
+  'settings.firstEventRaceCooldown': '競争クールダウン',
+  'settings.firstEventRaceCooldownHelp':
+    '別アカウントの予備が先に初回イベントを受け取り、まだ待機中の元の試行を置き換えた場合のみ、元のアカウント・チャネル・モデルを冷却します。0 で無効。競争をオフにすると新規記録は作りませんが、既存記録は維持します。',
+  'settings.modelBusyCooldown': '混雑クールダウン',
+  'settings.modelBusyCooldownHelp':
+    'モデル混雑を示す HTTP 503 またはプロトコルコード 14 で、そのアカウント・チャネル・モデルを冷却し、アカウント変更による再試行は維持します。他の通信エラーや一般的な 5xx は対象外です。競争とは独立し、0 で無効。割り当てや権限のクールダウンは置き換えません。',
+  'settings.zeroDisables': '0 でこの設定を無効化',
+  'cooldowns.race': '競争クールダウン',
+  'cooldowns.busy': '混雑クールダウン',
+  'cooldowns.clearShortHint':
+    'このアカウント・チャネル・モデルのこの種類だけを解除し、他の理由のクールダウンは維持します',
   'settings.environmentLocked': '環境変数 {key} で指定されているため、ここでは変更できません',
   'settings.proxyHelp':
     'HTTP、HTTPS、SOCKS5 プロキシ。カンマ区切りで複数指定するとプールになり、空欄ではシステム プロキシを使用',
