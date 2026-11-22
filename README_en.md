@@ -679,7 +679,8 @@ Process environment variables override the same keys in `.env`, and those settin
 | `MAX_ACTIVE_WORKERS` | `20`, `10` with Camoufox | Maximum workers active during peak load |
 | `WARM_STARTUP_CONCURRENCY` | `5` | Camoufox workers cold-started concurrently during on-demand scaling; prewarming starts workers one at a time; unlimited with `WAA_BACKEND=spidermonkey` |
 | `PER_ACCOUNT_CONCURRENCY` | `2` | Concurrent requests allowed per account |
-| `ROUTING_STRATEGY` | `round-robin` | `round-robin` rotates accounts; `fill-first` reuses the first available account |
+| `ROUTING_STRATEGY` | `round-robin` | `round-robin` rotates accounts; `least-recent` balances across warm accounts by idle slots, fewest recent requests in the sliding window, and oldest last use without disturbing bound/affinity requests; `fill-first` reuses the first available account; applied on save |
+| `ROUTING_RECENCY_WINDOW_SECONDS` | `300` | Sliding window in seconds used by `least-recent` to count per-account recent requests (kept in memory only, no disk format change); `0` disables window counting and balances by idle slots and oldest last use only; applied on save |
 | `ACCOUNT_ORDER` | empty | Accounts `fill-first` uses in order, comma-separated; unlisted accounts follow in ID order. Also adjustable on the Settings page, applied on save |
 | `MAX_ACCOUNT_SWITCHES` | `3` | How many times a request moves to another account after a non-quota upstream error such as 403 or 5xx; `0` disables switching |
 | `UPSTREAM_CHANNELS` | `playground` | Upstream channels for generation requests, `playground` and `build` comma separated; `build` is the legacy channel whose generation upstream has disabled |

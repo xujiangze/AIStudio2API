@@ -500,7 +500,7 @@ func (p *AccountPool) fileUploadAccountIDs(ctx context.Context) []string {
 	defer p.mu.Unlock()
 	available := make([]string, 0, len(p.accounts))
 	busy := make([]string, 0, len(p.accounts))
-	indices, _ := p.selectionIndicesLocked(selection)
+	indices, _ := p.selectionIndicesLocked(selection, time.Now())
 	for _, index := range indices {
 		account := p.accounts[index]
 		if !account.Config.Enabled || account.State != AccountReady {

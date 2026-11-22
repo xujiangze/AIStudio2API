@@ -480,6 +480,12 @@ export const messages: Record<TranslationKey, string> = {
   'settings.perAccountConcurrency': 'アカウントあたりの同時リクエスト数',
   'settings.routingStrategy': 'アカウントの選択方法',
   'settings.routingRoundRobin': 'ラウンドロビン',
+  'settings.routingLeastRecent': '直近使用の均等化',
+  'settings.routingRecencyWindow': '直近均等化ウィンドウ',
+  'settings.routingRecencyWindowHelp':
+    'この時間枠内のアカウントごとのリクエスト数を集計し、新規リクエストは常駐アカウントの中から空きがあり直近回数が少なく最も長く未使用のものを優先します。バインド済みリクエストや添付/-build 親和性は維持され、メモリ内のみで管理されます',
+  'settings.routingRecencyWindowZeroHint':
+    '0 にすると枠内の回数集計を無効にし、空き優先と最古使用のみで均等化します',
   'settings.accountOrder': 'アカウントの順序',
   'settings.accountOrderHelp':
     '同じアカウントを優先する場合、この順序で使用し、上限到達・クールダウン中・利用不可のときは次のアカウントに切り替えます',
@@ -487,7 +493,7 @@ export const messages: Record<TranslationKey, string> = {
   'settings.accountOrderDown': '{account} を下へ移動',
   'settings.routingFillFirst': '同じアカウントを優先',
   'settings.routingHelp':
-    'ラウンドロビンは順番にアカウントを使い、同じアカウントを優先すると上限到達か利用不可まで同じアカウントを使います',
+    'ラウンドロビンは順番に使い、直近使用の均等化は時間枠内で使ったアカウントの優先度を下げて空きを優先します。同じアカウントを優先すると上限到達か利用不可まで同じアカウントを使います',
   'settings.waaBackend': 'WAA バックエンド',
   'settings.waaBackendCamoufox': 'Camoufox',
   'settings.waaBackendSpiderMonkey': 'SpiderMonkey',

@@ -90,6 +90,63 @@ func TestFirstEventSecondsValidationAndSave(t *testing.T) {
 	}
 }
 
+// TestRoutingRecencyConfig 验证 ROUTING_STRATEGY=least-recent 与 ROUTING_RECENCY_WINDOW_SECONDS 的默认值、保存、校验与环境变量锁定。
+func TestRoutingRecencyConfig(t *testing.T) {
+	path := writeTestEnv(t, "")
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.RoutingStrategy != "round-robin" || cfg.RoutingRecencyWindowSeconds != DefaultRoutingRecencyWindowSeconds {
+		t.Fatalf("默认路由配置=%q window=%d", cfg.RoutingStrategy, cfg.RoutingRecencyWindowSeconds)
+	}
+
+	cfg.RoutingStrategy = "least-recent"
+	cfg.RoutingRecencyWindowSeconds = 180
+	if err := cfg.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := Load(path)
+	if err != nil || reloaded.RoutingStrategy != "least-recent" || reloaded.RoutingRecencyWindowSeconds != 180 {
+		t.Fatalf("保存重载失败: %+v, err=%v", reloaded, err)
+	}
+
+	// 0 表示关闭窗内次数统计，保存和加载均应保留
+	reloaded.RoutingRecencyWindowSeconds = 0
+	if err := reloaded.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	zeroed, err := Load(path)
+	if err != nil || zeroed.RoutingRecencyWindowSeconds != 0 {
+		t.Fatalf("0 秒窗口重载=%+v, err=%v", zeroed, err)
+	}
+
+	// 非法策略与负秒数应回退默认并记入 Invalid，且 Save 拒绝保存
+	for _, invalid := range []struct {
+		env string
+		key string
+	}{
+		{"ROUTING_STRATEGY=weighted\n", "ROUTING_STRATEGY"},
+		{"ROUTING_RECENCY_WINDOW_SECONDS=-1\n", "ROUTING_RECENCY_WINDOW_SECONDS"},
+		{"ROUTING_RECENCY_WINDOW_SECONDS=abc\n", "ROUTING_RECENCY_WINDOW_SECONDS"},
+	} {
+		loaded, err := Load(writeTestEnv(t, invalid.env))
+		if err != nil || len(loaded.Invalid) != 1 || loaded.Invalid[0].Key != invalid.key {
+			t.Fatalf("非法配置 %q 未按预期回退: %+v, err=%v", invalid.env, loaded, err)
+		}
+	}
+	bad := Default()
+	bad.RoutingStrategy = "weighted"
+	if err := bad.Save(path); err == nil {
+		t.Fatal("Save 接受了非法 ROUTING_STRATEGY")
+	}
+	bad = Default()
+	bad.RoutingRecencyWindowSeconds = -10
+	if err := bad.Save(path); err == nil {
+		t.Fatal("Save 接受了负数 ROUTING_RECENCY_WINDOW_SECONDS")
+	}
+}
+
 // TestValidateProxyCredentials 验证代理 URL 接受账号密码并拒绝空用户名
 func TestValidateProxyCredentials(t *testing.T) {
 	for _, value := range []string{"http://user:secret@127.0.0.1:8080", "socks5://user:secret@127.0.0.1:1080"} {

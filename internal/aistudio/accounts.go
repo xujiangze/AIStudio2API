@@ -354,6 +354,10 @@ type Account struct {
 	assistantBusy bool
 	// pendingProofs 是已选定该账户、还没有取完 proof 的生成租约数
 	pendingProofs int
+	// recentUses、lastRoutedAt、lastRoutedSeq 仅驻留内存，用于 least-recent 时间窗均衡，不持久化到磁盘
+	recentUses    []time.Time
+	lastRoutedAt  time.Time
+	lastRoutedSeq uint64
 }
 
 // AccountStatus 表示管理界面使用的脱敏账户状态
@@ -566,6 +570,8 @@ type AccountPool struct {
 	resources             map[string]string
 	perAccountConcurrency int
 	routingStrategy       string
+	recencyWindow         time.Duration
+	routedSeq             uint64
 	lastPicked            map[string]string
 	lastPickedChannel     map[string]Channel
 	channels              []Channel
@@ -1056,7 +1062,8 @@ func NewAccountPool(accounts []*Account, perAccountConcurrency int) *AccountPool
 	p := &AccountPool{
 		accounts: append([]*Account(nil), accounts...), byID: make(map[string]*Account, len(accounts)),
 		resources: make(map[string]string), perAccountConcurrency: perAccountConcurrency, changed: make(chan struct{}),
-		routingStrategy: "round-robin", lastPicked: make(map[string]string), lastPickedChannel: make(map[string]Channel),
+		routingStrategy: RoutingStrategyRoundRobin, recencyWindow: DefaultRoutingRecencyWindow,
+		lastPicked: make(map[string]string), lastPickedChannel: make(map[string]Channel),
 	}
 	for _, account := range p.accounts {
 		if account.runtime.ShortCooldowns == nil {
@@ -2494,8 +2501,8 @@ func (p *AccountPool) PreferWarmPool(accountIDs []string) []string {
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.routingStrategy != "round-robin" {
-		sort.SliceStable(result, func(left int, right int) bool {
+	if p.routingStrategy == RoutingStrategyFillFirst {
+		sort.SliceStable(result, func(left, right int) bool {
 			return p.accountRankLocked(result[left]) < p.accountRankLocked(result[right])
 		})
 	}
@@ -3027,7 +3034,8 @@ func (p *AccountPool) classifyCandidatesLocked(
 			return AccountCandidateGroups{}, err
 		}
 	}
-	indices, err := p.selectionIndicesLocked(selection)
+	now := time.Now()
+	indices, err := p.selectionIndicesLocked(selection, now)
 	if err != nil {
 		return AccountCandidateGroups{}, err
 	}
@@ -3037,7 +3045,6 @@ func (p *AccountPool) classifyCandidatesLocked(
 			warm[accountID] = struct{}{}
 		}
 	}
-	now := time.Now()
 	groups := AccountCandidateGroups{}
 	for _, index := range indices {
 		account := p.accounts[index]
@@ -3073,7 +3080,7 @@ func (p *AccountPool) classifyCandidatesLocked(
 }
 
 func (p *AccountPool) tryAcquireLocked(selection AccountSelection, now time.Time) (*AccountLease, time.Time, bool, error) {
-	indices, err := p.selectionIndicesLocked(selection)
+	indices, err := p.selectionIndicesLocked(selection, now)
 	if err != nil {
 		return nil, time.Time{}, false, err
 	}
@@ -3138,6 +3145,12 @@ func (p *AccountPool) tryAcquireLocked(selection AccountSelection, now time.Time
 			account.assistantBusy = true
 		}
 		account.LastUsed = now
+		if !selection.anyState {
+			account.lastRoutedAt = now
+			p.routedSeq++
+			account.lastRoutedSeq = p.routedSeq
+			p.recordRecentUseLocked(account, now)
+		}
 		p.lastPicked[selectionAccessScope(selection)] = account.ID
 		p.lastPickedChannel[selectionAccessScope(selection)] = candidate.channel
 		return &AccountLease{
@@ -3251,7 +3264,7 @@ func waaBootstrapModelEligible(account *Account, modelID string) bool {
 	return false
 }
 
-func (p *AccountPool) selectionIndicesLocked(selection AccountSelection) ([]int, error) {
+func (p *AccountPool) selectionIndicesLocked(selection AccountSelection, now time.Time) ([]int, error) {
 	var allowed map[string]struct{}
 	if selection.AllowedAccountIDs != nil {
 		allowed = make(map[string]struct{}, len(selection.AllowedAccountIDs))
@@ -3297,15 +3310,20 @@ func (p *AccountPool) selectionIndicesLocked(selection AccountSelection) ([]int,
 	sort.Slice(indices, func(left, right int) bool {
 		return p.accounts[indices[left]].ID < p.accounts[indices[right]].ID
 	})
-	if p.routingStrategy == "round-robin" {
+	switch p.routingStrategy {
+	case RoutingStrategyRoundRobin:
 		last := p.lastPicked[selectionAccessScope(selection)]
 		start := sort.Search(len(indices), func(index int) bool { return p.accounts[indices[index]].ID > last })
 		return append(indices[start:], indices[:start]...), nil
+	case RoutingStrategyLeastRecent:
+		p.sortLeastRecentLocked(indices, now)
+		return indices, nil
+	default:
+		sort.SliceStable(indices, func(left, right int) bool {
+			return p.accountRankLocked(p.accounts[indices[left]].ID) < p.accountRankLocked(p.accounts[indices[right]].ID)
+		})
+		return indices, nil
 	}
-	sort.SliceStable(indices, func(left, right int) bool {
-		return p.accountRankLocked(p.accounts[indices[left]].ID) < p.accountRankLocked(p.accounts[indices[right]].ID)
-	})
-	return indices, nil
 }
 
 // accountRankLocked 返回账户在 ACCOUNT_ORDER 中的位置，未列出的账户排在最后
@@ -3316,7 +3334,7 @@ func (p *AccountPool) accountRankLocked(accountID string) int {
 	return math.MaxInt
 }
 
-// SetRoutingStrategy 设置账户轮询或优先填满策略
+// SetRoutingStrategy 设置账户轮询、近期均衡或优先填满策略
 func (p *AccountPool) SetRoutingStrategy(strategy string) {
 	p.mu.Lock()
 	p.routingStrategy = strategy
@@ -3345,7 +3363,7 @@ func (p *AccountPool) OrderCandidates(accountIDs []string, modelAccessScope stri
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	indices, _ := p.selectionIndicesLocked(AccountSelection{AllowedAccountIDs: accountIDs, ModelAccessScope: modelAccessScope})
+	indices, _ := p.selectionIndicesLocked(AccountSelection{AllowedAccountIDs: accountIDs, ModelAccessScope: modelAccessScope}, time.Now())
 	ordered := make([]string, 0, len(indices))
 	for _, index := range indices {
 		ordered = append(ordered, p.accounts[index].ID)

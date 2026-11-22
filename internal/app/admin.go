@@ -1396,9 +1396,10 @@ func (admin *runtimeAdmin) UpdateRuntimeConfig(_ context.Context, value api.Runt
 		ProxyAPIKey:                   value.APIKey, Proxy: value.Proxy, InitTimeout: initTimeout, RequestTimeout: requestTimeout,
 		WarmWorkerLimit: value.WarmWorkerLimit, MaxActiveWorkers: value.MaxActiveWorkers,
 		WarmStartupConcurrency: value.WarmStartupConcurrency,
-		PerAccountConcurrency:  value.PerAccountConcurrency,
-		RoutingStrategy:        value.RoutingStrategy,
-		AccountOrder:           strings.TrimSpace(value.AccountOrder),
+		PerAccountConcurrency:       value.PerAccountConcurrency,
+		RoutingStrategy:             value.RoutingStrategy,
+		RoutingRecencyWindowSeconds: value.RoutingRecencyWindowSeconds,
+		AccountOrder:                strings.TrimSpace(value.AccountOrder),
 		MaxAccountSwitches:     value.MaxAccountSwitches,
 		UpstreamChannels:       value.UpstreamChannels,
 		ModelMapping:           strings.TrimSpace(value.ModelMapping),
@@ -1425,9 +1426,10 @@ func (admin *runtimeAdmin) UpdateRuntimeConfig(_ context.Context, value api.Runt
 	return value, nil
 }
 
-// ApplyAccountSelection 让 cfg 中的账户选择策略、账户顺序与模型限定的通道和账户作用于之后的选号
+// ApplyAccountSelection 让 cfg 中的账户选择策略、近期均衡时间窗、账户顺序与模型限定的通道和账户作用于之后的选号
 func (admin *runtimeAdmin) ApplyAccountSelection(cfg config.Config) {
 	admin.pool.SetRoutingStrategy(cfg.RoutingStrategy)
+	admin.pool.SetRoutingRecencyWindow(time.Duration(cfg.RoutingRecencyWindowSeconds) * time.Second)
 	admin.pool.SetAccountOrder(accountOrder(cfg.AccountOrder))
 	admin.pool.SetModelChannels(modelChannels(cfg.ModelChannels))
 	admin.pool.SetModelAccounts(modelAccounts(cfg.ModelAccounts))
@@ -1791,9 +1793,10 @@ func runtimeConfigDTO(cfg config.Config) api.RuntimeConfig {
 		Proxy: cfg.Proxy, InitTimeout: cfg.InitTimeout.String(), RequestTimeout: cfg.RequestTimeout.String(),
 		WarmWorkerLimit: cfg.WarmWorkerLimit, MaxActiveWorkers: cfg.MaxActiveWorkers,
 		WarmStartupConcurrency: cfg.WarmStartupConcurrency,
-		PerAccountConcurrency:  cfg.PerAccountConcurrency,
-		RoutingStrategy:        cfg.RoutingStrategy,
-		AccountOrder:           cfg.AccountOrder,
+		PerAccountConcurrency:       cfg.PerAccountConcurrency,
+		RoutingStrategy:             cfg.RoutingStrategy,
+		RoutingRecencyWindowSeconds: cfg.RoutingRecencyWindowSeconds,
+		AccountOrder:                cfg.AccountOrder,
 		MaxAccountSwitches:     cfg.MaxAccountSwitches,
 		UpstreamChannels:       cfg.UpstreamChannels,
 		ModelMapping:           cfg.ModelMapping,

@@ -482,6 +482,12 @@ export const messages: Record<TranslationKey, string> = {
   'settings.perAccountConcurrency': 'Requêtes simultanées par compte',
   'settings.routingStrategy': 'Stratégie de sélection des comptes',
   'settings.routingRoundRobin': 'Tourniquet',
+  'settings.routingLeastRecent': 'Équilibrage récent',
+  'settings.routingRecencyWindow': 'Fenêtre d’équilibrage récent',
+  'settings.routingRecencyWindowHelp':
+    'Compte les requêtes par compte sur cette fenêtre glissante afin que les nouvelles requêtes privilégient les comptes préchauffés inactifs, moins utilisés récemment et utilisés le plus anciennement. Les requêtes liées et l’affinité pièces jointes/-build restent inchangées ; conservé uniquement en mémoire',
+  'settings.routingRecencyWindowZeroHint':
+    '0 désactive le comptage sur fenêtre et équilibre uniquement selon l’inactivité et la dernière utilisation',
   'settings.accountOrder': 'Ordre des comptes',
   'settings.accountOrderHelp':
     'Avec « Même compte en priorité », ces comptes sont utilisés dans cet ordre ; le compte suivant prend le relais lorsqu’un compte est saturé, en temporisation ou indisponible',
@@ -489,7 +495,7 @@ export const messages: Record<TranslationKey, string> = {
   'settings.accountOrderDown': 'Descendre {account}',
   'settings.routingFillFirst': 'Même compte en priorité',
   'settings.routingHelp':
-    'Le tourniquet alterne les comptes. « Même compte en priorité » garde un compte jusqu’à ce qu’il soit saturé ou indisponible.',
+    'Le tourniquet alterne les comptes. L’équilibrage récent abaisse la priorité des comptes récemment sollicités et privilégie les comptes libres. « Même compte en priorité » garde un compte jusqu’à ce qu’il soit saturé ou indisponible.',
   'settings.waaBackend': 'Moteur WAA',
   'settings.waaBackendCamoufox': 'Camoufox',
   'settings.waaBackendSpiderMonkey': 'SpiderMonkey',

@@ -679,7 +679,8 @@ cp .env.example .env
 | `MAX_ACTIVE_WORKERS` | `20`，Camoufox 后端 `10` | 高峰期最多同时运行的 Worker 数 |
 | `WARM_STARTUP_CONCURRENCY` | `5` | 按需扩容时同时冷启动的 Camoufox Worker 数，预热逐个启动；`WAA_BACKEND=spidermonkey` 时不限制 |
 | `PER_ACCOUNT_CONCURRENCY` | `2` | 单账号同时执行的请求数 |
-| `ROUTING_STRATEGY` | `round-robin` | `round-robin` 轮询；`fill-first` 账号粘性优先 |
+| `ROUTING_STRATEGY` | `round-robin` | `round-robin` 轮询；`least-recent` 近期均衡（常驻池内优先空闲、窗内使用更少、最久未使用的账号，绑定与亲和请求不受影响）；`fill-first` 账号粘性优先，保存后立即生效 |
+| `ROUTING_RECENCY_WINDOW_SECONDS` | `300` | `least-recent` 统计账号近期请求次数的滑动时间窗秒数（仅内存统计，不改写账户运行态文件）；`0` 表示不计窗内次数，仅按空闲优先与最久未使用均衡，保存后立即生效 |
 | `ACCOUNT_ORDER` | 空 | `fill-first` 依次使用的账户，逗号分隔，未列出的账户排在后面并按 ID 排序；也可在设置页调整，保存后立即生效 |
 | `MAX_ACCOUNT_SWITCHES` | `3` | 上游返回 403、5xx 等非额度错误时一个请求最多换几次账户重试，`0` 为不换号 |
 | `UPSTREAM_CHANNELS` | `playground` | 生成请求使用的上游通道，`playground`、`build` 逗号分隔；`build` 为旧通道，上游已停用其生成 |

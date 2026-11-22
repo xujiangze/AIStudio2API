@@ -479,6 +479,12 @@ export const messages: Record<TranslationKey, string> = {
   'settings.perAccountConcurrency': 'Gleichzeitige Anfragen pro Konto',
   'settings.routingStrategy': 'Kontoauswahl',
   'settings.routingRoundRobin': 'Reihum',
+  'settings.routingLeastRecent': 'Zeitfenster-Ausgleich',
+  'settings.routingRecencyWindow': 'Ausgleichs-Zeitfenster',
+  'settings.routingRecencyWindowHelp':
+    'Zählt Anfragen pro Konto in diesem Zeitfenster, sodass neue Anfragen freie aktive Konten mit weniger jüngsten Nutzungen und älterem letzten Einsatz bevorzugen. Gebundene Anfragen und Anhang-/-build-Affinität bleiben unberührt; nur im Arbeitsspeicher',
+  'settings.routingRecencyWindowZeroHint':
+    '0 deaktiviert die Fensterzählung und gleicht nur nach freien Slots und ältestem Einsatz aus',
   'settings.accountOrder': 'Kontoreihenfolge',
   'settings.accountOrderHelp':
     'Beim Bevorzugen desselben Kontos werden diese Konten der Reihe nach verwendet; ist ein Konto ausgelastet, in der Abklingzeit oder nicht verfügbar, folgt das nächste',
@@ -486,7 +492,7 @@ export const messages: Record<TranslationKey, string> = {
   'settings.accountOrderDown': '{account} nach unten',
   'settings.routingFillFirst': 'Gleiches Konto bevorzugen',
   'settings.routingHelp':
-    'Reihum wechselt die Konten. „Gleiches Konto bevorzugen“ bleibt bei einem Konto, bis es ausgelastet oder nicht verfügbar ist.',
+    'Reihum wechselt die Konten. Zeitfenster-Ausgleich senkt die Priorität kürzlich genutzter Konten und bevorzugt freie Konten. „Gleiches Konto bevorzugen“ bleibt bei einem Konto, bis es ausgelastet oder nicht verfügbar ist.',
   'settings.waaBackend': 'WAA-Backend',
   'settings.waaBackendCamoufox': 'Camoufox',
   'settings.waaBackendSpiderMonkey': 'SpiderMonkey',

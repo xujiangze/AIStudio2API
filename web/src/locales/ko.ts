@@ -476,6 +476,12 @@ export const messages: Record<TranslationKey, string> = {
   'settings.perAccountConcurrency': '계정당 동시 요청 수',
   'settings.routingStrategy': '계정 선택 방식',
   'settings.routingRoundRobin': '라운드 로빈',
+  'settings.routingLeastRecent': '최근 균등 분배',
+  'settings.routingRecencyWindow': '최근 균등 시간 창',
+  'settings.routingRecencyWindowHelp':
+    '이 시간 창 안에서 계정별 요청 횟수를 집계해 새 요청은 상주 계정 중 현재 유휴이고 최근 사용 횟수가 적으며 가장 오래 쓰지 않은 계정을 우선 선택합니다. 바인딩 요청과 첨부/-build 친화성은 유지되며 메모리에만 보관됩니다',
+  'settings.routingRecencyWindowZeroHint':
+    '0이면 시간 창 횟수 집계를 끄고 현재 유휴 상태와 마지막 사용 시각만으로 균등 분배합니다',
   'settings.accountOrder': '계정 순서',
   'settings.accountOrderHelp':
     '같은 계정 우선일 때 이 순서대로 사용하며, 한도에 도달했거나 쿨다운 중이거나 사용할 수 없으면 다음 계정으로 전환합니다',
@@ -483,7 +489,7 @@ export const messages: Record<TranslationKey, string> = {
   'settings.accountOrderDown': '{account} 아래로 이동',
   'settings.routingFillFirst': '같은 계정 우선',
   'settings.routingHelp':
-    '라운드 로빈은 계정을 차례로 쓰고, 같은 계정 우선은 한도에 닿거나 쓸 수 없을 때까지 한 계정을 씁니다',
+    '라운드 로빈은 계정을 차례로 쓰고, 최근 균등 분배는 시간 창 내 사용이 많은 계정의 우선순위를 낮추며 유휴 계정을 우선합니다. 같은 계정 우선은 한도에 닿거나 쓸 수 없을 때까지 한 계정을 씁니다',
   'settings.waaBackend': 'WAA 백엔드',
   'settings.waaBackendCamoufox': 'Camoufox',
   'settings.waaBackendSpiderMonkey': 'SpiderMonkey',

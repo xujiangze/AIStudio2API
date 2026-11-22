@@ -42,6 +42,7 @@ var configKeys = [...]string{
 	"WARM_STARTUP_CONCURRENCY",
 	"PER_ACCOUNT_CONCURRENCY",
 	"ROUTING_STRATEGY",
+	"ROUTING_RECENCY_WINDOW_SECONDS",
 	"ACCOUNT_ORDER",
 	"MAX_ACCOUNT_SWITCHES",
 	"UPSTREAM_CHANNELS",
@@ -101,6 +102,9 @@ const FirstEventHedgeAuto = "auto"
 // DefaultMaxAccountSwitches 是 MAX_ACCOUNT_SWITCHES 的默认值
 const DefaultMaxAccountSwitches = 3
 
+// DefaultRoutingRecencyWindowSeconds 是 ROUTING_RECENCY_WINDOW_SECONDS 的默认值（5 分钟）
+const DefaultRoutingRecencyWindowSeconds = 300
+
 // DefaultFirstEventHedge 是 FIRST_EVENT_HEDGE 的默认等待秒数
 const DefaultFirstEventHedge = "20"
 
@@ -159,6 +163,7 @@ type Config struct {
 	WarmStartupConcurrency        int
 	PerAccountConcurrency         int
 	RoutingStrategy               string
+	RoutingRecencyWindowSeconds   int
 	AccountOrder                  string
 	MaxAccountSwitches            int
 	UpstreamChannels              []string
@@ -214,6 +219,7 @@ func Default() Config {
 		WarmStartupConcurrency:        defaultWarmConcurrency,
 		PerAccountConcurrency:         defaultAccountConcurrency,
 		RoutingStrategy:               "round-robin",
+		RoutingRecencyWindowSeconds:   DefaultRoutingRecencyWindowSeconds,
 		MaxAccountSwitches:            DefaultMaxAccountSwitches,
 		UpstreamChannels:              []string{"playground"},
 		WAABackend:                    WAABackendSpiderMonkey,
@@ -280,6 +286,7 @@ var configSetters = map[string]func(*Config, string) error{
 	"PROXY_API_KEY":                     textSetter(func(c *Config) *string { return &c.ProxyAPIKey }, strings.TrimSpace),
 	"PROXY":                             textSetter(func(c *Config) *string { return &c.Proxy }, strings.TrimSpace),
 	"ROUTING_STRATEGY":                  textSetter(func(c *Config) *string { return &c.RoutingStrategy }, strings.TrimSpace),
+	"ROUTING_RECENCY_WINDOW_SECONDS":    nonnegativeIntSetter("ROUTING_RECENCY_WINDOW_SECONDS", func(c *Config) *int { return &c.RoutingRecencyWindowSeconds }),
 	"ACCOUNT_ORDER":                     textSetter(func(c *Config) *string { return &c.AccountOrder }, strings.TrimSpace),
 	"MODEL_MAPPING":                     textSetter(func(c *Config) *string { return &c.ModelMapping }, strings.TrimSpace),
 	"MODEL_CHANNELS":                    textSetter(func(c *Config) *string { return &c.ModelChannels }, strings.TrimSpace),
@@ -435,8 +442,14 @@ var configChecks = []configCheck{
 		return nil
 	}},
 	{[]string{"ROUTING_STRATEGY"}, func(c Config) error {
-		if c.RoutingStrategy != "round-robin" && c.RoutingStrategy != "fill-first" {
-			return fmt.Errorf("ROUTING_STRATEGY 必须是 round-robin 或 fill-first")
+		if c.RoutingStrategy != "round-robin" && c.RoutingStrategy != "least-recent" && c.RoutingStrategy != "fill-first" {
+			return fmt.Errorf("ROUTING_STRATEGY 必须是 round-robin、least-recent 或 fill-first")
+		}
+		return nil
+	}},
+	{[]string{"ROUTING_RECENCY_WINDOW_SECONDS"}, func(c Config) error {
+		if c.RoutingRecencyWindowSeconds < 0 {
+			return fmt.Errorf("ROUTING_RECENCY_WINDOW_SECONDS 必须是 0 或正整数")
 		}
 		return nil
 	}},
@@ -691,6 +704,7 @@ func (c Config) envValues() map[string]string {
 		"WARM_STARTUP_CONCURRENCY":          strconv.Itoa(c.WarmStartupConcurrency),
 		"PER_ACCOUNT_CONCURRENCY":           strconv.Itoa(c.PerAccountConcurrency),
 		"ROUTING_STRATEGY":                  c.RoutingStrategy,
+		"ROUTING_RECENCY_WINDOW_SECONDS":    strconv.Itoa(c.RoutingRecencyWindowSeconds),
 		"ACCOUNT_ORDER":                     c.AccountOrder,
 		"MAX_ACCOUNT_SWITCHES":              strconv.Itoa(c.MaxAccountSwitches),
 		"UPSTREAM_CHANNELS":                 strings.Join(c.UpstreamChannels, ","),

@@ -77,6 +77,7 @@ const sections: {
       'warm_startup_concurrency',
       'per_account_concurrency',
       'routing_strategy',
+      'routing_recency_window_seconds',
       'account_order',
       'max_account_switches',
     ],
@@ -784,8 +785,33 @@ async function saveConfig(): Promise<void> {
             >
               <UiSelect id="setting-routing" v-model="form.routing_strategy" :class="inputClass">
                 <option value="round-robin">{{ t('settings.routingRoundRobin') }}</option>
+                <option value="least-recent">{{ t('settings.routingLeastRecent') }}</option>
                 <option value="fill-first">{{ t('settings.routingFillFirst') }}</option>
               </UiSelect>
+            </SettingRow>
+            <SettingRow
+              v-if="form.routing_strategy === 'least-recent'"
+              :label="t('settings.routingRecencyWindow')"
+              control-id="setting-routing-recency-window"
+              :description="t('settings.routingRecencyWindowHelp')"
+              effect="immediate"
+              :changed="changedFields.has('routing_recency_window_seconds')"
+              :env="environmentKey('routing_recency_window_seconds')"
+            >
+              <div class="flex items-center gap-2">
+                <input
+                  id="setting-routing-recency-window"
+                  v-model.number="form.routing_recency_window_seconds"
+                  :class="inputClass"
+                  type="number"
+                  min="0"
+                  step="1"
+                />
+                <span class="shrink-0 text-sm text-gray-400">{{ t('settings.unitSeconds') }}</span>
+              </div>
+              <p class="mt-1 text-xs text-gray-500">
+                {{ t('settings.routingRecencyWindowZeroHint') }}
+              </p>
             </SettingRow>
             <SettingRow
               v-if="form.routing_strategy === 'fill-first' && accounts.length > 1"

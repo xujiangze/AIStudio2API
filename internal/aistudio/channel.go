@@ -317,7 +317,7 @@ func (p *AccountPool) accountChannelCooldownLocked(account *Account, selection A
 	return earliest, !earliest.Until.IsZero()
 }
 
-// channelCandidatesLocked 按 indices 的账户顺序与通道顺序展开候选，轮询策略改按账户 ID 排序并从上次选中组合之后开始
+// channelCandidatesLocked 按 indices 的账户顺序与通道顺序展开候选，round-robin 策略改按账户 ID 排序并从上次选中组合之后开始
 func (p *AccountPool) channelCandidatesLocked(indices []int, selection AccountSelection) []channelCandidate {
 	channels := p.selectionChannelsLocked(selection)
 	candidates := make([]channelCandidate, 0, len(indices)*len(channels))
@@ -326,7 +326,7 @@ func (p *AccountPool) channelCandidatesLocked(indices []int, selection AccountSe
 			candidates = append(candidates, channelCandidate{index: index, channel: channel})
 		}
 	}
-	if p.routingStrategy != "round-robin" || len(indices) <= 1 && len(channels) <= 1 {
+	if p.routingStrategy != RoutingStrategyRoundRobin || len(indices) <= 1 && len(channels) <= 1 {
 		return candidates
 	}
 	rank := func(channel Channel) int { return slices.Index(channels, channel) }

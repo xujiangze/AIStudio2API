@@ -475,6 +475,12 @@ export const messages: Record<TranslationKey, string> = {
   'settings.perAccountConcurrency': 'Concurrent requests per account',
   'settings.routingStrategy': 'Account selection strategy',
   'settings.routingRoundRobin': 'Round robin',
+  'settings.routingLeastRecent': 'Least recent',
+  'settings.routingRecencyWindow': 'Recency balance window',
+  'settings.routingRecencyWindowHelp':
+    'Counts per-account requests in this sliding window so new requests prefer idle warm accounts with fewer recent uses and older last use. Bound requests and attachment/-build affinity stay pinned; kept in memory only',
+  'settings.routingRecencyWindowZeroHint':
+    '0 disables window counting and balances by idle slots and oldest last use only',
   'settings.accountOrder': 'Account order',
   'settings.accountOrderHelp':
     'Fill first uses these accounts in order and moves to the next one when an account is full, cooling down, or unavailable',
@@ -482,7 +488,7 @@ export const messages: Record<TranslationKey, string> = {
   'settings.accountOrderDown': 'Move {account} down',
   'settings.routingFillFirst': 'Fill first',
   'settings.routingHelp':
-    'Round robin rotates accounts. Fill first stays on one account until it is full or unavailable.',
+    'Round robin rotates accounts. Least recent lowers priority for recently used accounts and prefers idle ones. Fill first stays on one account until it is full or unavailable.',
   'settings.waaBackend': 'WAA backend',
   'settings.waaBackendCamoufox': 'Camoufox',
   'settings.waaBackendSpiderMonkey': 'SpiderMonkey',

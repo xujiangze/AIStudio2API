@@ -68,6 +68,7 @@ func newRuntime(
 	requests.logStage("service", "INFO", api.LogStage{Name: "运行时装配", Step: 3, Steps: 3}, "创建协议客户端", egress...)
 	pool := aistudio.NewAccountPool(accounts, cfg.PerAccountConcurrency)
 	pool.SetRoutingStrategy(cfg.RoutingStrategy)
+	pool.SetRoutingRecencyWindow(time.Duration(cfg.RoutingRecencyWindowSeconds) * time.Second)
 	pool.SetAccountOrder(accountOrder(cfg.AccountOrder))
 	pool.SetUpstreamChannels(upstreamChannels(cfg.UpstreamChannels))
 	pool.SetModelChannels(modelChannels(cfg.ModelChannels))
